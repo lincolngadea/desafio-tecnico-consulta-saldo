@@ -17,7 +17,7 @@ Detalhes em `openspec/project.md` → *Working Rules*.
 
 ## Constituição — qualidade de código (INEGOCIÁVEL)
 
-Vale para todo código de produção **e de teste**. Prazo, atalho ou conveniência não justificam violar um artigo.
+Os Arts. 1 a 6 valem para todo código de produção **e de teste**, e o Art. 7 vale para toda resposta ao usuário. Prazo, atalho ou conveniência não justificam violar um artigo.
 
 - Se cumprir um requisito exigir uma violação, **pare e pergunte** ao usuário. Não abra exceção por conta própria.
 - Em conflito entre objetivos, prevalece esta ordem: **correção > clareza > simplicidade > desempenho**.
@@ -96,6 +96,11 @@ O código deve se explicar sozinho. Um comentário admite que isso não foi poss
   - `TODO`/`FIXME` em código entregue: vira task no OpenSpec ou item documentado no README.
 - **Comentário desatualizado é bug.** Mudou o código, revise o comentário.
 - Escreva comentários **em inglês**, como o código, curtos e junto do que explicam.
+
+### Art. 7 — Idioma das respostas
+
+- **Todo resultado final de um prompt é devolvido em português do Brasil (pt-BR)**, inclusive resumos, relatórios de revisão e perguntas ao usuário.
+- Continuam em inglês, porque são artefatos e não respostas: código, identificadores, comentários (Art. 6) e o `type`/`scope` dos commits.
 
 ## Revisão por agente independente — MANDATÓRIA
 
