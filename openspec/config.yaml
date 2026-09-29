@@ -3,8 +3,45 @@ schema: spec-driven
 # MUST stay in sync with openspec/project.md — see "Contexto do projeto" rules in CLAUDE.md.
 context: |
   Full project context: openspec/project.md (read it before writing proposals/designs/tasks).
-  Domain: Itaú technical challenge — account balance query ("consulta de saldo"), built on the
-  itau-code-challange-starter-kit template (branch `kotlin`). Business rules come from the official spec.
+  Problem: Itaú technical challenge on the itau-code-challange-starter-kit template (branch `kotlin`).
+  Consume Kafka topic `transacoes-financeiras-processadas` (Redpanda), persist in DynamoDB the LATEST balance
+  snapshot per account, expose `GET /balances/{accountId}` returning that snapshot.
+  Requirements source of truth: `.challenge/enunciado.md` (full transcription of the challenge PDF; local, NOT
+  versioned, `.challenge/` is gitignored and must never be committed); it prevails over this context.
+  Delivery: 3 days, public GitHub repository.
+  Domain premise: each event is a CREDIT/DEBIT transaction already processed by the authorizer (APPROVED or
+  DECLINED) and EVERY event carries the account balance ALREADY CALCULATED. The service NEVER recalculates
+  balance; it keeps the most recent snapshot per account.id, where "most recent" = transaction.timestamp
+  (epoch MICROseconds), not arrival order.
+  Event: {"transaction":{"id","type":CREDIT|DEBIT,"amount","currency":"BRL","status":APPROVED|DECLINED,
+  "timestamp":<µs>},"account":{"id","owner","created_at":<µs>,"status","balance":{"amount","currency":"BRL"}}}
+  (same shape as `make kafka-produce-transactions-events`; amounts have 2 decimals; generator uses random
+  account ids per event; topic must be created explicitly; partition count is our choice).
+  API: `accountId` path param is a UUID. Response fields (exact snake_case): {"id":<account uuid>,
+  "owner":<uuid>,"balance":{"amount":Number,"currency":ISO 4217},"updated_at":ISO 8601 string, e.g.
+  "2025-07-05T18:04:13.433-03:00"}.
+  Open ambiguities (decide and justify in the change's design.md, never assume): source of `updated_at` (the
+  examples' payload timestamp and response updated_at are different events); whether DECLINED events update
+  the snapshot; tie-break for equal timestamps on the same account; HTTP status for unknown account and for
+  non-UUID accountId.
+  NFRs: mission-critical, 24/7, high volume. Must stay correct under: duplicates (idempotent); out-of-order
+  events (older never overwrites newer, also with concurrent consumers); invalid data (must not block
+  consumption nor corrupt snapshots; isolated and observable; invalid request such as non-UUID accountId gets
+  an explicit error response); unknown account (explicit error response, never 500); unavailable
+  dependencies (DynamoDB/broker: retry, backoff, circuit breaker, no silent event loss); high volume
+  (key-based reads/writes, no Scan, horizontally scalable consumption).
+  Evaluation (challenge list): DynamoDB data modeling (partition key, sort key, secondary indexes);
+  concurrency (balance reflects the most recent transaction even with out-of-order messages); resilience
+  (retries, backoff, circuit breaker where appropriate); tests of main flows and corner cases (duplicates,
+  out-of-order, unknown account); code quality (organization, readability, adherence to the starter-kit
+  hexagonal architecture); adverse/edge scenarios in the API; production readiness (logging, metrics,
+  containerization); any pattern/algorithm not implemented must be DOCUMENTED with what could be done and why.
+  Working rules (MANDATORY): TDD — every spec `#### Scenario` becomes a test BEFORE production code;
+  money is BigDecimal end to end (never Double/Float); domain has no framework dependency (no Spring,
+  AWS SDK, Kafka, Jackson); ONE commit per OpenSpec change (Conventional Commits); CONTRACTS come from
+  `.challenge/enunciado.md` (topic payload, request, response): every change touching a contract must check
+  field names, types and formats there (snake_case, µs, ISO 8601, UUID) and never invent, rename or "improve"
+  a field; anything the statement leaves undefined becomes an explicit decision in the change's design.md.
   Stack: Kotlin 2.3.21, Java 21, Spring Boot 4.1 (WebMVC + Spring Kafka), Gradle 9.5 Kotlin DSL,
   Jackson 3 (tools.jackson — never com.fasterxml), AWS SDK v2 DynamoDB (DynamoDB Local :8000),
   Kafka via Redpanda (localhost:19092, topic auto-creation DISABLED), Docker Compose.
@@ -14,20 +51,23 @@ context: |
   adapters convert DTOs to domain; application never imports adapter. HexagonalArchitectureTest (Konsist)
   enforces this but is scoped to `hello` only — new contexts must be added to it.
   Conventions: code in English, docs in Portuguese; constructor injection; config via ${ENV:default} in
-  application.yaml + docker-compose env; BigDecimal for money; pinned Docker image versions; idempotent Kafka consumers.
+  application.yaml + docker-compose env; pinned Docker image versions.
   Tests: unit in src/test/kotlin (mirrors main packages, no infra, lambda fakes for ports, Mockito for AWS client,
   MockMvc for web) via `./gradlew check` with JaCoCo gate >= 90% instructions; integration in
   src/integrationTest/kotlin against real DynamoDB Local + Redpanda via `./gradlew integrationTest`.
+  Main flows AND corner cases (duplicate, out-of-order, unknown account, invalid data, dependency down) must be
+  tested.
   Test names: backtick `should ... when ...`, AAA layout, kotlin.test asserts.
   Git: main branch `kotlin`; Conventional Commits 1.0.0 `<type>(<scope>)!: <description>` (types feat/fix/refactor/
   perf/test/docs/build/ci/chore/style/revert; scope = bounded context or area; type/scope in English, description,
-  body and footer in PORTUGUESE, imperative, lowercase, no period, header <= 72 chars); one logical change per
-  commit, tests and context updates in the same commit.
+  body and footer in PORTUGUESE, imperative, lowercase, no period, header <= 72 chars); one commit per OpenSpec
+  change, containing code, tests, specs and the context updates it motivated.
   Makefile: up/run/stop/logs/build/http; db-up/db-seed/db-scan/db-down; kafka-up/kafka-seed/
   kafka-topic-create NAME=/kafka-produce-{accounts,transactions}-events TOPIC= COUNT=/kafka-consume TOPIC=/kafka-down;
   test (check inside docker build); integration-test (host JDK); clean-containers; clean.
-  Known gaps: no @RestControllerAdvice (domain exceptions -> 500), no Kafka DLT/error handler,
-  DynamoDB seed creates a single hard-coded table.
+  Template gaps the challenge must address: no @RestControllerAdvice (domain exceptions -> 500), no Kafka
+  DLT/error handler, DynamoDB seed creates a single hard-coded table and application.yaml has a single
+  table-name, app in compose does not wait for seeds, example adapter uses Scan per request.
 
 # Project context (optional)
 # This is shown to AI when creating artifacts.

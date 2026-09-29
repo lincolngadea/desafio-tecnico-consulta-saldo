@@ -8,10 +8,14 @@
 
 Solução do desafio técnico de **consulta de saldo** do processo seletivo de Engenharia de Software do Itaú, construída sobre o template `itau-code-challange-starter-kit` (branch `kotlin`).
 
-O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a infraestrutura e os padrões a seguir. O desafio deve **estender** esse template: reutilizar a arquitetura, os padrões e a infra já configurados, e adicionar o que a especificação exigir.
+**Problema:** consumir o tópico Kafka `transacoes-financeiras-processadas` (Redpanda), persistir no DynamoDB o **snapshot de saldo mais recente de cada conta** e expor `GET /balances/{accountId}` com esse saldo.
 
-- A especificação oficial é enviada pelo time do processo seletivo. As regras de negócio vêm dela, não deste arquivo.
-- O repositório precisa ficar **público** para avaliação.
+**Fonte da verdade dos requisitos:** `.challenge/enunciado.md`, a transcrição integral do PDF do desafio. Ela é local e **não versionada**. Em caso de conflito, o enunciado prevalece sobre este arquivo.
+
+O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a infraestrutura e os padrões a seguir. O desafio deve **estender** esse template: reutilizar a arquitetura, os padrões e a infra já configurados, e adicionar o que o problema exigir.
+
+- Detalhes do domínio, requisitos não funcionais e critérios de avaliação estão nas seções *Domain Context*, *Non-Functional Requirements* e *Evaluation Criteria*.
+- Entrega: prazo de **3 dias**, em repositório **público** no GitHub. O enunciado (`.challenge/`, já no `.gitignore`) **não** pode ser versionado.
 
 ## Tech Stack
 
@@ -24,7 +28,7 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 | JSON | Jackson 3 (`tools.jackson`, `jackson-module-kotlin`). **Não** usar `com.fasterxml.jackson.databind` |
 | Persistência | Amazon DynamoDB via AWS SDK for Java v2 (`software.amazon.awssdk:dynamodb`, BOM 2.46.7) — **DynamoDB Local** (`amazon/dynamodb-local:3.3.0`, in-memory) |
 | Mensageria | Protocolo Kafka via Spring Kafka; broker local = **Redpanda** `v26.1.14` (single-node, KRaft) |
-| Testes | JUnit 5, `kotlin-test`, Mockito (`@MockitoBean`), MockMvc, Konsist 0.17.3 |
+| Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3 |
 | Cobertura | JaCoCo 0.8.12, gate mínimo de **90% de instruções** em `./gradlew check` |
 | Containers | Docker multi-stage + Docker Compose |
 | CI | GitHub Actions: Build, Test & Coverage (unit + integração), Docker, CodeQL |
@@ -55,6 +59,16 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 | `greeting-templates.topic-name` | `GREETING_TEMPLATES_TOPIC` | `greeting-templates` |
 
 ## Project Conventions
+
+### Working Rules (mandatórias)
+
+- **TDD:** cada cenário (`#### Scenario`) das specs do OpenSpec vira um teste **antes** do código de produção (vermelho → verde → refatora).
+- **Dinheiro em `BigDecimal`**, nunca `Double`/`Float`, do parse do evento até a resposta HTTP.
+- **Domínio sem dependência de framework** (sem Spring, AWS SDK, Kafka ou Jackson em `domain/`).
+- **Um commit por change do OpenSpec**, em Conventional Commits (ver *Git Workflow*).
+- **Contratos vêm do enunciado:** `.challenge/enunciado.md` é a fonte da verdade para o payload do tópico, o request e o response.
+  - Toda change que tocar um contrato deve conferir lá os nomes de campo, os tipos e os formatos: snake_case, µs, ISO 8601, UUID.
+  - Nunca invente, renomeie ou "melhore" um campo. O que o enunciado não define vira uma decisão explícita no `design.md` da change.
 
 ### Architecture Patterns — Hexagonal (Ports & Adapters)
 
@@ -105,7 +119,6 @@ adapter ──▶ port ──▶ domain
 - **Constantes de atributo/coluna** como `private const val` no topo do arquivo (ex.: `TEMPLATE_ATTRIBUTE = "template"`).
 - **Validação de negócio no service**, lançando exceções de domínio. Invariantes técnicas do adapter usam `check(...)` ou `require(...)`.
 - **JSON no Kafka:** consumir como `String` (`StringDeserializer`) e desserializar com o `ObjectMapper` (Jackson 3) injetado do Spring.
-- **Valores monetários:** usar `BigDecimal`, nunca `Double`/`Float`.
 - **Imagens Docker** sempre com versão fixa (nunca `latest`).
 - Sem Lombok nem geração de código. Kotlin idiomático.
 
@@ -138,7 +151,7 @@ Gates e regras:
 - Integração **não** faz parte de `check` e **não** conta para cobertura.
 - `./gradlew integrationTest` também dispara os testes unitários (o `jacocoTestReport` depende de `test`).
 - Relatório HTML: `build/reports/jacoco/test/html/index.html`.
-- Toda funcionalidade nova precisa de testes unitários que mantenham o gate. Adapters que tocam infra real devem ganhar teste de integração.
+- Toda funcionalidade nova nasce de teste (TDD, ver *Working Rules*) e mantém o gate. Fluxos principais **e** corner cases (duplicata, fora de ordem, conta inexistente, dado inválido, dependência indisponível) precisam de teste. Adapters que tocam infra real devem ganhar teste de integração.
 
 ### Git Workflow
 
@@ -149,7 +162,7 @@ Gates e regras:
   - `scope` (opcional): bounded context ou área (ex.: `balance`, `hello`, `infra`, `openspec`, `deps`).
   - Descrição (e corpo/rodapé) em **português**, no imperativo, minúscula, sem ponto final, com até 72 caracteres no cabeçalho. `type` e `scope` permanecem em inglês, pois são os tokens do padrão.
   - Quebra de compatibilidade: `!` após o tipo/escopo e/ou rodapé `BREAKING CHANGE: ...`.
-  - Um commit = uma mudança lógica. Testes e atualizações de contexto (`project.md` + `context:`) vão no mesmo commit da mudança que os motivou.
+  - **Um commit por change do OpenSpec**, contendo código, testes, specs e as atualizações de contexto (`project.md` + `context:`) que a change motivou.
 
 ## Commands (Makefile)
 
@@ -199,15 +212,22 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
 
 ## Domain Context
 
-- **Tema:** consulta de saldo de contas a partir de eventos de conta e de transação recebidos via Kafka. As regras finais vêm da especificação oficial.
-- **Formatos de evento** fornecidos pelos geradores do kit (`infra/redpanda/produce-*-events.sh`):
+- **Fonte:** tópico `transacoes-financeiras-processadas`. Cada evento é uma transação de crédito ou débito **já processada pelo autorizador** (aprovada **ou rejeitada**), e **todo** evento traz o **saldo da conta já calculado**.
+- **Premissa central:** o serviço **não recalcula saldo**. Ele guarda o **snapshot mais recente por conta** (`account.id`), e "mais recente" é definido pelo `transaction.timestamp` do evento, não pela ordem de chegada.
+- **Leitura:** `GET /balances/{accountId}` devolve o snapshot mais atual da conta. `accountId` é um **UUID** no path.
+- **Contrato de resposta** (nomes de campo exatos, em snake_case):
+
+| Campo | Tipo | Descrição |
+|-|-|-|
+| `id` | UUID | Identificador da conta (`account.id`) |
+| `owner` | UUID | Identificador do titular (`account.owner`) |
+| `balance.amount` | Number | Saldo atual |
+| `balance.currency` | String | Código ISO 4217 (ex.: `BRL`) |
+| `updated_at` | String | Data/hora da última atualização em **ISO 8601** (o exemplo usa milissegundos e offset: `2025-07-05T18:04:13.433-03:00`) |
+
+- **Formato do evento** (o mesmo de `make kafka-produce-transactions-events TOPIC=transacoes-financeiras-processadas`):
 
 ```jsonc
-// kafka-produce-accounts-events
-{ "account": { "id": "<uuid>", "owner": "<uuid>", "created_at": <epoch µs>,
-               "status": "ENABLED|DISABLED" } }
-
-// kafka-produce-transactions-events
 { "transaction": { "id": "<uuid>", "type": "CREDIT|DEBIT", "amount": 0.01..10000.00,
                    "currency": "BRL", "status": "APPROVED|DECLINED", "timestamp": <epoch µs> },
   "account":     { "id": "<uuid>", "owner": "<uuid>", "created_at": <epoch µs>,
@@ -215,9 +235,40 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
                    "balance": { "amount": 0.00..20000.00, "currency": "BRL" } } }
 ```
 
-- Timestamps em **microssegundos** desde a epoch. Valores com 2 casas decimais, moeda `BRL`.
-- Os geradores criam UUIDs aleatórios a cada execução: eventos de conta e de transação **não compartilham** `account.id`.
-- Mensagens Kafka podem ser reentregues (seed republicável, `auto-offset-reset: earliest`), então o consumo deve ser **idempotente**.
+- Timestamps em **microssegundos** desde a epoch. Valores monetários com 2 casas decimais, moeda `BRL`.
+- O gerador cria `account.id` aleatório por evento. Para testar a consulta, use um `account.id` lido do tópico (`make kafka-consume`) ou publique eventos próprios.
+- O tópico precisa ser criado explicitamente, porque a auto-criação está desligada no cluster. A quantidade de partições fica a nosso critério.
+- **Ambiguidades do enunciado.** Não assuma uma resposta: cada uma deve ser decidida e justificada no `design.md` da change que a tocar.
+  - Origem do `updated_at`. Nos exemplos, o `timestamp` do payload e o `updated_at` da resposta não correspondem ao mesmo evento.
+  - Se um evento `DECLINED` atualiza o snapshot.
+  - Como desempatar dois eventos da mesma conta com o mesmo `timestamp`.
+  - Qual status HTTP devolver para conta inexistente e para `accountId` inválido.
+
+## Non-Functional Requirements
+
+Serviço de **missão crítica, 24/7 e alto volume**. A solução precisa se manter correta nestes cenários adversos:
+
+| Cenário | Comportamento esperado |
+|-|-|
+| **Mensagens duplicadas** | Reprocessar não altera o resultado (idempotência). |
+| **Mensagens fora de ordem** | Um evento mais antigo nunca sobrescreve um snapshot mais recente, inclusive com consumidores concorrentes. |
+| **Dados inválidos** (evento ou request) | Um evento inválido não trava o consumo nem corrompe o snapshot; fica isolado e observável. Um request inválido (ex.: `accountId` que não é UUID) recebe uma resposta de erro explícita. |
+| **Conta inexistente** | A consulta devolve uma resposta de erro explícita, nunca um 500. |
+| **Dependências indisponíveis** (DynamoDB, broker) | Degradação controlada com retry, backoff e circuit breaker, sem perda silenciosa de eventos. |
+| **Alto volume** | Escrita e leitura por chave (sem `Scan`), consumo escalável horizontalmente. |
+
+## Evaluation Criteria
+
+A solução será avaliada por (lista do enunciado):
+
+1. **Modelagem de dados no DynamoDB:** escolha de partition key, sort key e índices secundários.
+2. **Tratamento de concorrência:** o saldo reflete a transação mais recente mesmo com mensagens fora de ordem.
+3. **Resiliência:** retries, backoff e circuit breaker, onde for oportuno.
+4. **Testes:** fluxos principais e corner cases (ex.: mensagens duplicadas, transações fora de ordem, conta inexistente).
+5. **Qualidade de código:** organização, legibilidade e aderência à arquitetura hexagonal do starter-kit.
+6. **Tratamento de cenários adversos:** comportamento da API em situações inesperadas ou de borda.
+7. **Production readiness:** logging, métricas e conteinerização.
+8. **Pattern ou algoritmo não implementado** deve ser **documentado** com o que poderia ser feito e os motivadores.
 
 ## Important Constraints
 
@@ -225,7 +276,7 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
 - Manter o **gate de cobertura ≥ 90%** (`./gradlew check`), senão o build e a CI quebram.
 - A stack deve subir apenas com Docker (`make up`). Imagens com versões fixas.
 - Não commitar segredos. As credenciais `local/local` e o `endpointOverride` do DynamoDB valem só para o ambiente local.
-- Lacunas conhecidas do template, a tratar se o desafio exigir:
+- Lacunas do template que o desafio exige tratar (ver *Non-Functional Requirements*):
   - Não há `@RestControllerAdvice`: exceções de domínio viram HTTP 500.
   - Não há error handler nem DLT customizados no Kafka.
   - `infra/dynamodb/seed.sh` cria uma única tabela fixa, e `application.yaml` tem uma única `dynamodb.table-name`.

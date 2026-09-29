@@ -3,6 +3,16 @@
 Desafio técnico Itaú — **consulta de saldo** sobre o `itau-code-challange-starter-kit` (Kotlin, Spring Boot 4, hexagonal, DynamoDB Local, Redpanda).
 Contexto completo do projeto (stack, arquitetura, convenções, comandos, testes, domínio): **`openspec/project.md`**.
 
+## Regras de trabalho — MANDATÓRIAS
+
+Detalhes em `openspec/project.md` → *Working Rules*.
+
+- **TDD:** todo cenário das specs do OpenSpec vira teste **antes** do código de produção.
+- **Dinheiro em `BigDecimal`** de ponta a ponta.
+- **Domínio sem dependência de framework.**
+- **Um commit por change do OpenSpec.**
+- **Contratos (payload, request, response) vêm de `.challenge/enunciado.md`.** Confira os nomes de campo e os formatos lá e nunca os invente.
+
 ## Commits
 
 **Conventional Commits 1.0.0** é obrigatório: `<type>(<scope>)!: <descrição>`, com a mensagem em **português** (`type`/`scope` em inglês). Tipos, escopos e formato estão em `openspec/project.md` → *Git Workflow*.
@@ -32,7 +42,7 @@ Toda alteração em `openspec/project.md` **deve** ser replicada no `context:` d
 - Novo bounded context, nova camada/padrão arquitetural ou exceção a uma regra existente.
 - Convenção de código, de testes ou de commits nova ou alterada.
 - Comando do `Makefile` novo, removido ou com comportamento alterado.
-- Regra de domínio ou restrição vinda da **especificação oficial** do desafio. A seção *Domain Context* hoje se baseia só nos geradores de eventos do kit e **precisa ser revisada quando a spec for recebida**.
+- Regra de domínio, requisito não funcional ou critério de avaliação novo ou alterado (seções *Domain Context*, *Non-Functional Requirements* e *Evaluation Criteria*).
 - Lacuna conhecida resolvida (remover da lista) ou descoberta (adicionar).
 
 ### Regra 3 — Cautela: só entra o que justifica existir

@@ -12,7 +12,7 @@
 │                          itau-code-challange-starter-kit                     │
 │  Kotlin 2.3.21 · Java 21 · Spring Boot 4.1.0 · Gradle 9.5.1 (Kotlin DSL)     │
 │  Jackson 3 (tools.jackson) · AWS SDK v2 (DynamoDB) · Spring Kafka            │
-│  JUnit 5 · Mockito · MockMvc · Konsist · JaCoCo (gate 90% instruções)        │
+│  JUnit 6 · Mockito · MockMvc · Konsist · JaCoCo (gate 90% instruções)        │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │  Código de exemplo: um único bounded context chamado `hello`                 │
 │    • GET /hello?name=X  → lê template aleatório do DynamoDB e formata        │

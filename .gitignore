@@ -38,3 +38,11 @@ out/
 
 ### Kotlin ###
 .kotlin
+
+### Desafio ###
+# Enunciado do desafio: não pode ser versionado (exigência do próprio enunciado)
+.challenge/
+# Material pessoal de preparação para a entrevista
+.interview/
+# Commands/skills genéricos gerados pelo OpenSpec; regenere com `openspec init --tools claude`
+.claude/
