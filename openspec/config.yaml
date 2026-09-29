@@ -1,0 +1,49 @@
+schema: spec-driven
+
+# MUST stay in sync with openspec/project.md — see "Contexto do projeto" rules in CLAUDE.md.
+context: |
+  Full project context: openspec/project.md (read it before writing proposals/designs/tasks).
+  Domain: Itaú technical challenge — account balance query ("consulta de saldo"), built on the
+  itau-code-challange-starter-kit template (branch `kotlin`). Business rules come from the official spec.
+  Stack: Kotlin 2.3.21, Java 21, Spring Boot 4.1 (WebMVC + Spring Kafka), Gradle 9.5 Kotlin DSL,
+  Jackson 3 (tools.jackson — never com.fasterxml), AWS SDK v2 DynamoDB (DynamoDB Local :8000),
+  Kafka via Redpanda (localhost:19092, topic auto-creation DISABLED), Docker Compose.
+  Architecture: hexagonal per bounded context under br.com.itau.challenge.<ctx>/
+  {domain/{model,exception}, port/{input,output}, application, adapter/{input/{web,kafka},output/dynamodb}}.
+  domain has no Spring; ports are `fun interface`; services are @Service implementing input ports;
+  adapters convert DTOs to domain; application never imports adapter. HexagonalArchitectureTest (Konsist)
+  enforces this but is scoped to `hello` only — new contexts must be added to it.
+  Conventions: code in English, docs in Portuguese; constructor injection; config via ${ENV:default} in
+  application.yaml + docker-compose env; BigDecimal for money; pinned Docker image versions; idempotent Kafka consumers.
+  Tests: unit in src/test/kotlin (mirrors main packages, no infra, lambda fakes for ports, Mockito for AWS client,
+  MockMvc for web) via `./gradlew check` with JaCoCo gate >= 90% instructions; integration in
+  src/integrationTest/kotlin against real DynamoDB Local + Redpanda via `./gradlew integrationTest`.
+  Test names: backtick `should ... when ...`, AAA layout, kotlin.test asserts.
+  Git: main branch `kotlin`; Conventional Commits 1.0.0 `<type>(<scope>)!: <description>` (types feat/fix/refactor/
+  perf/test/docs/build/ci/chore/style/revert; scope = bounded context or area; type/scope in English, description,
+  body and footer in PORTUGUESE, imperative, lowercase, no period, header <= 72 chars); one logical change per
+  commit, tests and context updates in the same commit.
+  Makefile: up/run/stop/logs/build/http; db-up/db-seed/db-scan/db-down; kafka-up/kafka-seed/
+  kafka-topic-create NAME=/kafka-produce-{accounts,transactions}-events TOPIC= COUNT=/kafka-consume TOPIC=/kafka-down;
+  test (check inside docker build); integration-test (host JDK); clean-containers; clean.
+  Known gaps: no @RestControllerAdvice (domain exceptions -> 500), no Kafka DLT/error handler,
+  DynamoDB seed creates a single hard-coded table.
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
