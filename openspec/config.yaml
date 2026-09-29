@@ -42,6 +42,20 @@ context: |
   `.challenge/enunciado.md` (topic payload, request, response): every change touching a contract must check
   field names, types and formats there (snake_case, µs, ISO 8601, UUID) and never invent, rename or "improve"
   a field; anything the statement leaves undefined becomes an explicit decision in the change's design.md.
+  CODE QUALITY CONSTITUTION (NON-NEGOTIABLE, full text in CLAUDE.md; applies to test code too): Clean
+  Architecture (dependencies point inward, business rules and invariants live in domain value objects/
+  entities validated at construction, application only orchestrates, adapters only translate, no technology
+  type crosses a port); SOLID; Clean Code (intention-revealing domain names, small single-purpose functions,
+  <= 3 params, no boolean flag params, value objects instead of primitives, immutability, no swallowed
+  exceptions, no `!!`, exhaustive `when` on sealed types, no magic values/dead/commented-out code); DRY (of
+  knowledge, rule of three), KISS, YAGNI (only what the spec asks; leftovers are documented); tests follow
+  F.I.R.S.T., one behavior each, AAA; comments explain WHY only (no redundant/noise/journal comments, no
+  TODO/FIXME in delivered code), in English. Violating it requires asking the user first.
+  INDEPENDENT AGENT REVIEW (MANDATORY, procedure in CLAUDE.md): before committing any change, with
+  `./gradlew check` green, a fresh-context read-only subagent (never a fork) reviews the diff against the
+  change artifacts, the constitution, the enunciado contracts and the working rules; findings are blocker/
+  adjustment/suggestion with file:line; iterate until no blocker/adjustment remains, max 3 rounds, then
+  escalate to the user; if the plan itself is wrong, propose fixing the artifact instead of deviating.
   Stack: Kotlin 2.3.21, Java 21, Spring Boot 4.1 (WebMVC + Spring Kafka), Gradle 9.5 Kotlin DSL,
   Jackson 3 (tools.jackson — never com.fasterxml), AWS SDK v2 DynamoDB (DynamoDB Local :8000),
   Kafka via Redpanda (localhost:19092, topic auto-creation DISABLED), Docker Compose.
@@ -78,12 +92,12 @@ context: |
 #     We use conventional commits
 #     Domain: e-commerce platform
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+# Per-artifact rules — enforce the CLAUDE.md constitution and independent review in every change.
+rules:
+  design:
+    - State how the change respects the CLAUDE.md constitution (layers touched, ports, value objects).
+    - Resolve every ambiguity of `.challenge/enunciado.md` the change touches as an explicit decision with rationale.
+  tasks:
+    - Order tasks test-first (TDD) — each spec scenario gets a failing-test task before its implementation task.
+    - End with a task "Independent agent review" following the CLAUDE.md procedure (max 3 rounds), then a
+      task to update openspec/project.md and config.yaml context if the change justifies it (CLAUDE.md Rule 3).

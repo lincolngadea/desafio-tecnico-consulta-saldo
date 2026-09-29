@@ -69,6 +69,12 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 - **Contratos vêm do enunciado:** `.challenge/enunciado.md` é a fonte da verdade para o payload do tópico, o request e o response.
   - Toda change que tocar um contrato deve conferir lá os nomes de campo, os tipos e os formatos: snake_case, µs, ISO 8601, UUID.
   - Nunca invente, renomeie ou "melhore" um campo. O que o enunciado não define vira uma decisão explícita no `design.md` da change.
+- **Constituição de qualidade de código** (Clean Architecture, SOLID, Clean Code, DRY/KISS/YAGNI, testes e comentários): é **inegociável** e vale também para os testes. O texto completo está no `CLAUDE.md`.
+- **Revisão por agente independente antes do commit de toda change:**
+  - O revisor é um subagente com contexto limpo, somente leitura.
+  - Os achados são classificados como bloqueante, ajuste ou sugestão.
+  - O ciclo se repete até não restar bloqueante nem ajuste, com no máximo 3 rodadas; depois disso, a decisão sobe para o usuário.
+  - Procedimento completo no `CLAUDE.md`.
 
 ### Architecture Patterns — Hexagonal (Ports & Adapters)
 
@@ -117,7 +123,9 @@ adapter ──▶ port ──▶ domain
 - **Ports como `fun interface`**, para que os testes usem lambdas como fakes.
 - **Modelos de domínio e DTOs como `data class`** imutáveis (`val`).
 - **Constantes de atributo/coluna** como `private const val` no topo do arquivo (ex.: `TEMPLATE_ATTRIBUTE = "template"`).
-- **Validação de negócio no service**, lançando exceções de domínio. Invariantes técnicas do adapter usam `check(...)` ou `require(...)`.
+- **Invariantes de negócio no domínio:** value objects e entidades validam na construção e lançam exceções de domínio; o service só orquestra.
+  - O `hello` do template valida no service. Não replicar esse padrão nos contextos novos.
+  - Invariantes técnicas do adapter usam `check(...)` ou `require(...)`.
 - **JSON no Kafka:** consumir como `String` (`StringDeserializer`) e desserializar com o `ObjectMapper` (Jackson 3) injetado do Spring.
 - **Imagens Docker** sempre com versão fixa (nunca `latest`).
 - Sem Lombok nem geração de código. Kotlin idiomático.
