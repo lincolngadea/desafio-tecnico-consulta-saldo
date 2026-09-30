@@ -17,7 +17,7 @@ Detalhes em `openspec/project.md` → *Working Rules*.
 
 ## Constituição — qualidade de código (INEGOCIÁVEL)
 
-Os Arts. 1 a 6 valem para todo código de produção **e de teste**, e o Art. 7 vale para toda resposta ao usuário. Prazo, atalho ou conveniência não justificam violar um artigo.
+Os Arts. 1 a 6 e 8 a 10 valem para todo código de produção **e de teste**. Os Arts. 8 a 10 valem também para os artefatos da change (`design.md`, specs) e para as dependências do `build.gradle.kts`, e o que eles mandam registrar vai no `design.md`. Uma alteração de código fora de uma change não tem `design.md`, então o registro vai na descrição do commit e no relatório de revisão. O Art. 7 vale para toda resposta ao usuário. Prazo, atalho ou conveniência não justificam violar um artigo.
 
 - Se cumprir um requisito exigir uma violação, **pare e pergunte** ao usuário. Não abra exceção por conta própria.
 - Em conflito entre objetivos, prevalece esta ordem: **correção > clareza > simplicidade > desempenho**.
@@ -101,6 +101,31 @@ O código deve se explicar sozinho. Um comentário admite que isso não foi poss
 
 - **Todo resultado final de um prompt é devolvido em português do Brasil (pt-BR)**, inclusive resumos, relatórios de revisão e perguntas ao usuário.
 - Continuam em inglês, porque são artefatos e não respostas: código, identificadores, comentários (Art. 6) e o `type`/`scope` dos commits.
+
+### Art. 8 — Carga cognitiva e coerência
+
+Código é lido muito mais vezes do que escrito. Entre duas soluções que atendem à spec, escolha a que um humano entende mais rápido, mesmo que seja um pouco mais longa.
+
+- **Baixa carga cognitiva:**
+  - o código se lê de cima para baixo, sem truques e sem indireção que não se paga;
+  - um conceito tem um único nome em todo o código, e um nome não serve a dois conceitos.
+  - O revisor cita o trecho concreto (uma função que mistura níveis de abstração, como no Art. 3, ou um nome usado para dois conceitos), e não um critério abstrato.
+- **Coerência com o codebase:** antes de escrever, leia o código existente, o do kit e o dos contextos vizinhos, para aprender o padrão em uso: nomes de variáveis, classes, arquivos e pacotes, estrutura dos testes, onde ficam as constantes e como as dependências são injetadas.
+  - Siga esse padrão. Só diverge com motivo explícito, nunca por gosto.
+  - Se o padrão existente violar um artigo desta constituição, o artigo prevalece, e a divergência é explícita, nunca silenciosa.
+
+### Art. 9 — Design patterns
+
+- **Antes de desenhar uma solução, verifique se já existe um pattern reconhecido para o problema** (Strategy, Factory, Adapter, Decorator, Specification, Repository, Result, Retry, Circuit Breaker etc.). Se existir e couber, use-o, e nomeie-o no `design.md` e, quando ajudar, no nome da classe.
+- O pattern serve ao problema, e não o contrário. Só entra quando o problema existe hoje, e KISS e YAGNI (Art. 4) prevalecem sobre a elegância.
+- O `design.md` registra o pattern escolhido ou por que nenhum coube.
+
+### Art. 10 — Não reinventar a roda
+
+- **Antes de implementar algo que não seja regra de negócio do domínio, procure a solução pronta**, nesta ordem: biblioteca padrão do Kotlin/JDK, Spring, AWS SDK e, por fim, uma biblioteca consolidada no ecossistema Kotlin/Spring. "Spring" inclui o Framework e os projetos do ecossistema (Spring Data, Spring Cloud AWS etc.). Se resolve o problema e é mantida e conhecida pela comunidade, use-a em vez de criar do zero.
+- **Código próprio** é para a regra de negócio do domínio, ou para quando nenhuma alternativa adequada existe. O `design.md` registra a alternativa avaliada e por que foi descartada.
+- **Dependência nova** precisa de manutenção ativa, maturidade e adoção ampla, e o custo de tê-la deve ser menor que o de implementar. O `design.md` registra a evidência mínima: versão, data da última release e uma linha sobre o custo de tê-la contra o de implementar. Ela é declarada no build, e o contexto do projeto (Regra 2 abaixo) registra só a dependência e o motivo.
+- **O Art. 1 prevalece:** biblioteca de infraestrutura não entra no domínio, e uma que exija abrir mão da arquitetura (por exemplo, estado mutável no domínio) é adaptada na borda ou descartada.
 
 ## Revisão por agente independente — MANDATÓRIA
 

@@ -9,6 +9,12 @@ services:
       DYNAMODB_ENDPOINT: http://dynamodb:8000
       DYNAMODB_REGION: us-east-1
       GREETING_TABLE_NAME: GreetingMessages
+      BALANCE_TABLE_NAME: AccountBalances
+      DYNAMODB_CONNECTION_TIMEOUT: 500ms
+      DYNAMODB_SOCKET_TIMEOUT: 1s
+      DYNAMODB_API_CALL_ATTEMPT_TIMEOUT: 1s
+      DYNAMODB_API_CALL_TIMEOUT: 3s
+      DYNAMODB_MAX_ATTEMPTS: 3
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       GREETING_TEMPLATES_TOPIC: greeting-templates
     depends_on:
@@ -34,6 +40,7 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       DYNAMODB_ENDPOINT_URL: http://dynamodb:8000
       GREETING_TABLE_NAME: GreetingMessages
+      BALANCE_TABLE_NAME: AccountBalances
     volumes:
       - ./infra/dynamodb:/dynamodb-seed:ro
     entrypoint: ["/bin/bash", "/dynamodb-seed/seed.sh"]

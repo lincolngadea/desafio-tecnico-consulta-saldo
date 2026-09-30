@@ -13,6 +13,14 @@ dynamodb:
   endpoint: ${DYNAMODB_ENDPOINT:http://localhost:8000}
   region: ${DYNAMODB_REGION:us-east-1}
   table-name: ${GREETING_TABLE_NAME:GreetingMessages}
+  balance-table-name: ${BALANCE_TABLE_NAME:AccountBalances}
+  timeouts:
+    connection: ${DYNAMODB_CONNECTION_TIMEOUT:500ms}
+    socket: ${DYNAMODB_SOCKET_TIMEOUT:1s}
+    api-call-attempt: ${DYNAMODB_API_CALL_ATTEMPT_TIMEOUT:1s}
+    api-call: ${DYNAMODB_API_CALL_TIMEOUT:3s}
+  retry:
+    max-attempts: ${DYNAMODB_MAX_ATTEMPTS:3}
 
 greeting-templates:
   topic-name: ${GREETING_TEMPLATES_TOPIC:greeting-templates}

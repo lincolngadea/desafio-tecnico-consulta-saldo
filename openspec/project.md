@@ -26,7 +26,7 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 | Framework | Spring Boot 4.1.0 / Spring Framework 7 (`spring-boot-starter-webmvc`, `spring-boot-starter-kafka`) |
 | Build | Gradle 9.5.1, Kotlin DSL (`build.gradle.kts`) |
 | JSON | Jackson 3 (`tools.jackson`, `jackson-module-kotlin`). **Não** usar `com.fasterxml.jackson.databind` |
-| Persistência | Amazon DynamoDB via AWS SDK for Java v2 (`software.amazon.awssdk:dynamodb`, BOM 2.46.7) — **DynamoDB Local** (`amazon/dynamodb-local:3.3.0`, in-memory) |
+| Persistência | Amazon DynamoDB via AWS SDK for Java v2 (`software.amazon.awssdk:dynamodb`, BOM 2.46.7, com `apache5-client` declarado para os timeouts de conexão e de socket) — **DynamoDB Local** (`amazon/dynamodb-local:3.3.0`, in-memory) |
 | Mensageria | Protocolo Kafka via Spring Kafka; broker local = **Redpanda** `v26.1.14` (single-node, KRaft) |
 | Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3 |
 | Cobertura | JaCoCo 0.8.12, gate mínimo de **90% de instruções** em `./gradlew check` |
@@ -39,7 +39,7 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 |-|-|-|
 | `app` | 8080 | Aplicação (imagem `runtime`) |
 | `dynamodb` | 8000 | DynamoDB Local (`-sharedDb -inMemory`) |
-| `dynamodb-seed` | — | `infra/dynamodb/seed.sh`: cria a tabela e faz o seed |
+| `dynamodb-seed` | — | `infra/dynamodb/seed.sh`: cria as tabelas `GreetingMessages` e `AccountBalances` (idempotente) e faz o seed |
 | `dynamodb-admin` | 8001 | Console web do DynamoDB |
 | `redpanda` | 19092 (externo) / `redpanda:9092` (interno) | Broker Kafka |
 | `redpanda-seed` | — | `infra/redpanda/config.sh && seed.sh`: config do cluster, cria tópico e publica o seed |
@@ -56,7 +56,12 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 | `dynamodb.endpoint` | `DYNAMODB_ENDPOINT` | `http://localhost:8000` |
 | `dynamodb.region` | `DYNAMODB_REGION` | `us-east-1` |
 | `dynamodb.table-name` | `GREETING_TABLE_NAME` | `GreetingMessages` |
+| `dynamodb.balance-table-name` | `BALANCE_TABLE_NAME` | `AccountBalances` |
+| `dynamodb.timeouts.{connection,socket,api-call-attempt,api-call}` | `DYNAMODB_{CONNECTION,SOCKET,API_CALL_ATTEMPT,API_CALL}_TIMEOUT` | `500ms`, `1s`, `1s`, `3s` |
+| `dynamodb.retry.max-attempts` | `DYNAMODB_MAX_ATTEMPTS` | `3` |
 | `greeting-templates.topic-name` | `GREETING_TEMPLATES_TOPIC` | `greeting-templates` |
+
+O `DynamoDbClient` do kit (`DynamoDbConfig` + `DynamoDbProperties`) é o único da aplicação, com timeouts e tentativas explícitos. Contextos novos o reutilizam, sem criar outro cliente.
 
 ## Project Conventions
 
@@ -69,7 +74,12 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 - **Contratos vêm do enunciado:** `.challenge/enunciado.md` é a fonte da verdade para o payload do tópico, o request e o response.
   - Toda change que tocar um contrato deve conferir lá os nomes de campo, os tipos e os formatos: snake_case, µs, ISO 8601, UUID.
   - Nunca invente, renomeie ou "melhore" um campo. O que o enunciado não define vira uma decisão explícita no `design.md` da change.
-- **Constituição de qualidade de código** (Clean Architecture, SOLID, Clean Code, DRY/KISS/YAGNI, testes e comentários): é **inegociável** e vale também para os testes. O texto completo está no `CLAUDE.md`.
+- **Constituição de qualidade de código** (Clean Architecture, SOLID, Clean Code, DRY/KISS/YAGNI, testes, comentários, baixa carga cognitiva e coerência com o codebase, design patterns e não reinventar a roda): é **inegociável** e vale também para os testes. O texto completo está no `CLAUDE.md`.
+  - Os Arts. 8 a 10 valem também para o `design.md`, as specs e as dependências do `build.gradle.kts`.
+  - Coerência: seguir os nomes, arquivos, pacotes e a estrutura de testes do codebase, com um nome por conceito. Se o padrão existente violar um artigo, o artigo prevalece e a divergência é explícita. O revisor cita o trecho concreto ao apontar violação de carga cognitiva.
+  - Pattern reconhecido: verificar antes de desenhar, sem forçar; KISS e YAGNI prevalecem.
+  - Solução pronta, nesta ordem: biblioteca padrão do Kotlin/JDK, Spring (Framework e projetos do ecossistema), AWS SDK e biblioteca consolidada do ecossistema. Código próprio é para a regra de negócio do domínio ou para quando nenhuma alternativa adequada existe. O Art. 1 prevalece sobre qualquer biblioteca.
+  - O `design.md` registra o pattern aplicado (ou por que nenhum coube), a alternativa de biblioteca descartada, cada divergência do padrão do codebase e, para dependência nova, a versão, a data da última release e o custo contra o de implementar (dependência nova precisa de manutenção ativa, maturidade e adoção ampla). O contexto do projeto registra só a dependência e o motivo. Sem `design.md` (alteração fora de uma change), o registro vai na descrição do commit e no relatório de revisão.
 - **Revisão por agente independente antes do commit de toda change:**
   - O revisor é um subagente com contexto limpo, somente leitura.
   - Os achados são classificados como bloqueante, ajuste ou sugestão.
@@ -108,7 +118,7 @@ adapter ──▶ port ──▶ domain
 - `application` não depende de `adapter`. Pode usar `@Service`.
 - `adapter` fala com o núcleo **via ports de entrada**, nunca instancia services diretamente.
 - DTOs de transporte (HTTP/Kafka) ficam no adapter e são convertidos para modelos de domínio ali.
-- A regra é verificada por `HexagonalArchitectureTest` (Konsist). **O escopo atual é só `br.com.itau.challenge.hello..`**, então todo contexto novo precisa ser incluído no teste.
+- A regra é verificada por `HexagonalArchitectureTest` (Konsist, no pacote raiz). A regra de camadas casa `..domain..`, `..port..` etc. em todos os contextos de uma vez. Os testes que proíbem imports de framework no domínio e nos ports são parametrizados por contexto, então todo contexto novo precisa entrar na lista de contextos do teste.
 
 **Fluxo de exemplo (`hello`):**
 - `GET /hello` → `GreetingController` → `GetGreetingUseCase` ← `GreetingService` → `GreetingTemplateProvider` ← `DynamoDbGreetingTemplateProvider` (Scan).
@@ -119,7 +129,7 @@ adapter ──▶ port ──▶ domain
 - **Idioma do código:** inglês (classes, métodos, mensagens de exceção, nomes de teste). Documentação (README, specs) em português.
 - **Indentação:** 4 espaços nos arquivos de `hello/` e nos testes. `Application.kt` e `build.gradle.kts` usam tabs (padrão do Spring Initializr). Seguir o estilo do arquivo que estiver sendo editado.
 - **Trailing commas** em listas de parâmetros/argumentos multilinha.
-- **Injeção de dependência por construtor**, com propriedades `private val`. Valores de config via `@Value("\${prop}")` no construtor.
+- **Injeção de dependência por construtor**, com propriedades `private val`. Valor de config avulso via `@Value("\${prop}")` no construtor; um grupo de valores que levaria a mais de 3 parâmetros vira uma `@ConfigurationProperties` (data class imutável).
 - **Ports como `fun interface`**, para que os testes usem lambdas como fakes.
 - **Modelos de domínio e DTOs como `data class`** imutáveis (`val`).
 - **Constantes de atributo/coluna** como `private const val` no topo do arquivo (ex.: `TEMPLATE_ATTRIBUTE = "template"`).
@@ -247,10 +257,11 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
 - O gerador cria `account.id` aleatório por evento. Para testar a consulta, use um `account.id` lido do tópico (`make kafka-consume`) ou publique eventos próprios.
 - O tópico precisa ser criado explicitamente, porque a auto-criação está desligada no cluster. A quantidade de partições fica a nosso critério.
 - **Ambiguidades do enunciado.** Não assuma uma resposta: cada uma deve ser decidida e justificada no `design.md` da change que a tocar.
-  - Origem do `updated_at`. Nos exemplos, o `timestamp` do payload e o `updated_at` da resposta não correspondem ao mesmo evento.
   - Se um evento `DECLINED` atualiza o snapshot.
-  - Como desempatar dois eventos da mesma conta com o mesmo `timestamp`.
   - Qual status HTTP devolver para conta inexistente e para `accountId` inválido.
+- **Ambiguidades já decididas** (change `add-balance-repository`):
+  - `updated_at` vem do `transaction.timestamp` do evento que gerou o snapshot.
+  - "Mais recente" é definido só por `SnapshotVersion` no domínio: maior `timestamp` e, no empate, maior id da transação na forma textual minúscula (não `UUID.compareTo`). O adapter DynamoDB aplica essa ordem numa `ConditionExpression`.
 
 ## Non-Functional Requirements
 
@@ -287,7 +298,6 @@ A solução será avaliada por (lista do enunciado):
 - Lacunas do template que o desafio exige tratar (ver *Non-Functional Requirements*):
   - Não há `@RestControllerAdvice`: exceções de domínio viram HTTP 500.
   - Não há error handler nem DLT customizados no Kafka.
-  - `infra/dynamodb/seed.sh` cria uma única tabela fixa, e `application.yaml` tem uma única `dynamodb.table-name`.
   - O serviço `app` no compose não espera os seeds terminarem (`depends_on` simples).
   - O exemplo usa `Scan` por request. Para consultas, preferir `GetItem`/`Query` por chave.
 
