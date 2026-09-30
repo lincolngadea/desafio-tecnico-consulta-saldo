@@ -79,28 +79,36 @@ Os Arts. 1 a 6 e 8 a 10 valem para todo código de produção **e de teste**. Os
 
 ### Art. 6 — Comentários (Clean Code)
 
-O código deve se explicar sozinho. Um comentário admite que isso não foi possível, então antes de comentar tente **renomear, extrair uma função ou criar um tipo**.
+O código continua se explicando sozinho quanto ao **quê**: antes de comentar o quê, **renomeie, extraia uma função ou crie um tipo**. O comentário existe para o que o código não consegue dizer: o **porquê** e a **rastreabilidade** até o enunciado. Ele fica **só no cabeçalho do arquivo**, para não se misturar com o código.
 
-- **Permitidos:**
-  - o **porquê**: intenção, decisão não óbvia ou restrição de negócio;
-  - aviso de consequência;
-  - referência a uma fonte externa (spec, enunciado, documentação);
-  - unidade ou formato que o tipo não expressa (ex.: µs);
-  - KDoc de contrato em ports e na API pública do domínio, quando a assinatura não basta.
+- **Um cabeçalho por arquivo:** todo arquivo com bloco criado ou alterado abre, antes do `package`, com **um** comentário `/* ... */` e nenhum comentário no corpo. O cabeçalho traz:
+  - uma **entrada por trecho** criado ou alterado, no formato `L<início>[-L<fim>] <símbolo>: <porquê>`. O porquê é uma razão real: a intenção, a decisão não óbvia ou a restrição de negócio que motivou a implementação. Para um tipo simples, a razão real é por que ele existe como tipo distinto (ex.: não ser confundido com outro UUID);
+  - o **item do enunciado** que motivou a mudança, na **última linha**, no formato `Enunciado: <seção> → <item>`. Uma entrada cujo item difere do principal o traz no fim dela, como `Enunciado: <seção> → <item>`.
+- **Linhas:** a numeração é a do arquivo final, já contando o cabeçalho. A entrada de tipo ou classe cita só a linha da declaração, e a de função ou trecho cita a faixa até a linha que o fecha (`)` ou `}`, quando houver). O símbolo ajuda a reencontrar o trecho quando as linhas se deslocam. Mudou o arquivo, atualize as linhas do cabeçalho.
+- **Sem comentário no corpo:** nem por bloco, nem por linha, nem por unidade. A única exceção é o KDoc de contrato (retorno e exceções) na assinatura de ports e da API pública do domínio, quando a assinatura não basta. O cabeçalho do port aponta para ele.
+- **Trivial**, e dispensado de cabeçalho: arquivo que só tem getter, delegação ou expressão única sem regra.
+- **Item do enunciado:** o título da subseção ou o texto em negrito do bullet do `.challenge/enunciado.md`, sem o emoji (ex.: `Enunciado: O que será avaliado → Tratamento de concorrência`). Quando existir, pode-se citar o campo do contrato (ex.: `Enunciado: O que construir → Exposição (API REST) → Contrato de resposta → balance.amount`).
+- **Sem item do enunciado** (ex.: infraestrutura de suporte): escreva `Enunciado: n/a (<change> design Dn)`, citando a decisão do `design.md` que a justifica. Nunca invente um item.
+- **Referência ao `design.md`** sempre na forma `<change> design Dn` (ex.: `add-balance-repository design D1`), porque cada change tem o seu D1 e o arquivo muda de lugar depois do `archive`.
+- **Testes:** o cabeçalho do arquivo traz, antes da linha `Enunciado:`, `Spec: <requisito>`, com o título do requisito da spec (vários, separados por `;`). Sem requisito de spec, use `Spec: n/a (<change> design Dn)`. Os nomes dos testes já descrevem o comportamento, então só entram no cabeçalho a classe e os pontos não óbvios.
+- **Também permitidos no cabeçalho:**
+  - referência a uma fonte externa (spec, documentação);
+  - unidade ou formato que o tipo não expressa (ex.: µs).
 - **Proibidos:**
-  - comentário que repete o código;
-  - comentário de ruído ou obrigatório;
+  - comentário que repete o código (o quê);
+  - comentário de ruído, que enche linha sem dar uma razão;
   - diário, changelog ou autoria (isso é papel do git);
   - código comentado;
   - banners;
   - `TODO`/`FIXME` em código entregue: vira task no OpenSpec ou item documentado no README.
+- **Revisão manual:** o usuário revisa os comentários antes de cada commit (ver *Revisão manual dos comentários*, abaixo).
 - **Comentário desatualizado é bug.** Mudou o código, revise o comentário.
-- Escreva comentários **em inglês**, como o código, curtos e junto do que explicam.
+- Escreva comentários **em português do Brasil (pt-BR)** e curtos. Identificadores e termos técnicos ficam como no código (`saveIfNewer`, `ConditionExpression`). Código, identificadores, mensagens de exceção e nomes de teste continuam em inglês.
 
 ### Art. 7 — Idioma das respostas
 
 - **Todo resultado final de um prompt é devolvido em português do Brasil (pt-BR)**, inclusive resumos, relatórios de revisão e perguntas ao usuário.
-- Continuam em inglês, porque são artefatos e não respostas: código, identificadores, comentários (Art. 6) e o `type`/`scope` dos commits.
+- Continuam em inglês, porque são artefatos e não respostas: código, identificadores e o `type`/`scope` dos commits. Os comentários seguem o Art. 6 e ficam em pt-BR.
 
 ### Art. 8 — Carga cognitiva e coerência
 
@@ -147,7 +155,8 @@ Nenhuma implementação é dada como pronta, nem commitada, sem a revisão de **
    - (a) coerência com o plano: cada requisito e cenário da spec está implementado e testado, e não há nada fora do escopo;
    - (b) cada artigo da constituição;
    - (c) contratos idênticos ao enunciado;
-   - (d) as regras de trabalho.
+   - (d) as regras de trabalho;
+   - (e) os comentários do Art. 6: todo arquivo alterado tem o cabeçalho, em pt-BR, com uma entrada por trecho (linhas e símbolo que batem com o arquivo, e o porquê real) e um item do enunciado que existe no `.challenge/enunciado.md` e tem relação com o código; sem comentário no corpo (salvo o KDoc de contrato), sem ruído nem o quê.
 5. **Formato dos achados:** cada um traz `arquivo:linha`, a regra violada e uma severidade:
    - **bloqueante:** viola a constituição, a spec ou o contrato;
    - **ajuste:** qualidade abaixo do padrão;
@@ -156,6 +165,8 @@ Nenhuma implementação é dada como pronta, nem commitada, sem a revisão de **
 7. **Critério de saída:** uma rodada sem bloqueantes nem ajustes pendentes.
 8. **Limite de 3 rodadas.** Se não convergir, pare e apresente ao usuário os pontos em divergência, com a posição do autor e a do revisor.
    - Faça o mesmo se o revisor mostrar que o **plano** (design ou spec) está errado: não desvie dele em silêncio; proponha a correção do artefato e peça uma decisão.
+
+**Revisão manual dos comentários:** antes do commit, o autor apresenta ao usuário os comentários novos e alterados (`arquivo:linha` e texto). O commit só sai depois de o usuário revisá-los e dar o aval.
 
 **Registro:** ao final, informe ao usuário quantas rodadas houve, o que foi corrigido e o que foi rejeitado, com o motivo. A aprovação final é sempre do humano.
 

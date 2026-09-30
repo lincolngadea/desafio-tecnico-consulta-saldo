@@ -75,6 +75,12 @@ O `DynamoDbClient` do kit (`DynamoDbConfig` + `DynamoDbProperties`) é o único 
   - Toda change que tocar um contrato deve conferir lá os nomes de campo, os tipos e os formatos: snake_case, µs, ISO 8601, UUID.
   - Nunca invente, renomeie ou "melhore" um campo. O que o enunciado não define vira uma decisão explícita no `design.md` da change.
 - **Constituição de qualidade de código** (Clean Architecture, SOLID, Clean Code, DRY/KISS/YAGNI, testes, comentários, baixa carga cognitiva e coerência com o codebase, design patterns e não reinventar a roda): é **inegociável** e vale também para os testes. O texto completo está no `CLAUDE.md`.
+  - Comentários (Art. 6): ficam **só no cabeçalho do arquivo**, um comentário `/* ... */` antes do `package`, em português (pt-BR), e nenhum comentário no corpo. O cabeçalho tem uma entrada por trecho criado ou alterado, no formato `L<início>[-L<fim>] <símbolo>: <porquê>`, com o porquê real (para tipo simples, por que existe como tipo distinto), e na última linha `Enunciado: <seção> → <item>`. Uma entrada cujo item difere do principal o traz no fim dela. A numeração é a do arquivo final, contando o cabeçalho, e muda junto com o arquivo. A entrada de tipo ou classe cita só a linha da declaração, e a de função ou trecho cita a faixa até a linha que o fecha (`)` ou `}`, quando houver); o símbolo ajuda a reencontrar o trecho quando as linhas se deslocam. Arquivo trivial (só getter, delegação ou expressão única sem regra) dispensa cabeçalho.
+  - A única exceção ao "nada no corpo" é o KDoc de contrato (retorno e exceções) na assinatura de ports e da API pública do domínio, quando a assinatura não basta. O cabeçalho do port aponta para ele.
+  - O item é o título da subseção ou o texto em negrito do bullet do enunciado, sem emoji, e pode citar o campo do contrato (`O que construir → Exposição (API REST) → Contrato de resposta → balance.amount`). Sem item: `Enunciado: n/a (<change> design Dn)`, e nunca se inventa um item. Referência ao `design.md` sempre na forma `<change> design Dn`.
+  - Nos testes, o cabeçalho traz também `Spec: <requisito>` (vários, separados por `;`, ou `Spec: n/a (<change> design Dn)`) antes da linha `Enunciado:`, e só a classe e os pontos não óbvios entram nele, porque os nomes dos testes já descrevem o comportamento.
+  - Também permitidos no cabeçalho: referência a fonte externa e unidade ou formato que o tipo não expressa (µs). Termos técnicos e identificadores ficam como no código (`saveIfNewer`, `ConditionExpression`). Comentário desatualizado é bug.
+  - Proibido: comentário que repete o código, comentário de ruído, diário ou autoria, código comentado, banner e `TODO`/`FIXME`. O usuário revisa os comentários manualmente antes de cada commit, e o revisor independente confere que todo arquivo alterado tem o cabeçalho, em pt-BR, com linhas e símbolos que batem, o porquê real e um item do enunciado que existe, sem comentário no corpo (salvo o KDoc de contrato), ruído nem o quê.
   - Os Arts. 8 a 10 valem também para o `design.md`, as specs e as dependências do `build.gradle.kts`.
   - Coerência: seguir os nomes, arquivos, pacotes e a estrutura de testes do codebase, com um nome por conceito. Se o padrão existente violar um artigo, o artigo prevalece e a divergência é explícita. O revisor cita o trecho concreto ao apontar violação de carga cognitiva.
   - Pattern reconhecido: verificar antes de desenhar, sem forçar; KISS e YAGNI prevalecem.
@@ -126,7 +132,7 @@ adapter ──▶ port ──▶ domain
 
 ### Code Style
 
-- **Idioma do código:** inglês (classes, métodos, mensagens de exceção, nomes de teste). Documentação (README, specs) em português.
+- **Idioma do código:** inglês (classes, métodos, mensagens de exceção, nomes de teste). Comentários e documentação (README, specs) em português (pt-BR).
 - **Indentação:** 4 espaços nos arquivos de `hello/` e nos testes. `Application.kt` e `build.gradle.kts` usam tabs (padrão do Spring Initializr). Seguir o estilo do arquivo que estiver sendo editado.
 - **Trailing commas** em listas de parâmetros/argumentos multilinha.
 - **Injeção de dependência por construtor**, com propriedades `private val`. Valor de config avulso via `@Value("\${prop}")` no construtor; um grupo de valores que levaria a mais de 3 parâmetros vira uma `@ConfigurationProperties` (data class imutável).

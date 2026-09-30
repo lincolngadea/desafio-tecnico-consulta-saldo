@@ -20,6 +20,18 @@
 >
 > O restante deste documento descreve o que já está pronto no template (stack, arquitetura, infraestrutura local e comandos disponíveis).
 
+> ## Aviso sobre os comentários no código
+>
+> O código desta solução tem **mais comentários do que teria em um ambiente de produção tradicional**. Lá, esses comentários não seriam mergeados: o nome dos identificadores, os testes, o histórico do git e a documentação das changes já bastariam.
+>
+> Eles foram **enviados no commit de propósito**, para dar visibilidade, durante a análise da solução, ao que cada mudança faz e ao que a motivou. Para não sujar o código, os comentários ficam **só no cabeçalho de cada arquivo**, em um único bloco antes do `package`, e o corpo não tem comentário. O cabeçalho traz:
+>
+> - uma **entrada por trecho** criado ou alterado, com a **linha** (`L<início>-L<fim>`), o símbolo e o **porquê** da implementação, em português;
+> - o **item do enunciado** que motivou a mudança, na última linha, no formato `Enunciado: <seção> → <item>`, com os títulos do enunciado do desafio;
+> - nos arquivos de teste, também o **requisito da spec** que eles cobrem, em `Spec: <requisito>`.
+>
+> As decisões de design que justificam o código, e as alternativas descartadas, ficam no `design.md` de cada change em `openspec/changes/`.
+
 ## Sumário
 
 - [Stack](#stack)

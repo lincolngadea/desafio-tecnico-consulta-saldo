@@ -45,31 +45,50 @@ context: |
   field names, types and formats there (snake_case, µs, ISO 8601, UUID) and never invent, rename or "improve"
   a field; anything the statement leaves undefined becomes an explicit decision in the change's design.md.
   CODE QUALITY CONSTITUTION (NON-NEGOTIABLE, full text in CLAUDE.md; applies to test code too): Clean
-  Architecture (dependencies point inward, business rules and invariants live in domain value objects/
-  entities validated at construction, application only orchestrates, adapters only translate, no technology
-  type crosses a port); SOLID; Clean Code (intention-revealing domain names, small single-purpose functions,
-  <= 3 params, no boolean flag params, value objects instead of primitives, immutability, no swallowed
-  exceptions, no `!!`, exhaustive `when` on sealed types, no magic values/dead/commented-out code); DRY (of
-  knowledge, rule of three), KISS, YAGNI (only what the spec asks; leftovers are documented); tests follow
-  F.I.R.S.T., one behavior each, AAA; comments explain WHY only (no redundant/noise/journal comments, no
-  TODO/FIXME in delivered code), in English; LOW COGNITIVE LOAD and COHERENCE (prefer the solution a human
-  understands fastest; one name per concept; read existing code first and follow its naming/file/package/test
-  patterns; if an existing pattern violates an article the article wins and the divergence is explicit; a
-  reviewer cites the concrete snippet, not an abstract criterion); DESIGN PATTERNS (check whether a recognized
-  pattern fits before designing, never force one, KISS/YAGNI win); DON'T REINVENT THE WHEEL (Kotlin/JDK stdlib,
+  Architecture (dependencies point inward, business rules and invariants live in domain value objects/entities
+  validated at construction, application only orchestrates, adapters only translate, no technology type crosses
+  a port); SOLID; Clean Code (intention-revealing domain names, small single-purpose functions, <= 3 params, no
+  boolean flag params, value objects instead of primitives, immutability, no swallowed exceptions, no `!!`,
+  exhaustive `when` on sealed types, no magic values/dead/commented-out code); DRY (of knowledge, rule of
+  three), KISS, YAGNI (only what the spec asks; leftovers are documented); tests follow F.I.R.S.T., one behavior
+  each, AAA; comments live ONLY in a file header, ONE `/* ... */` block before `package`, in pt-BR (Brazilian
+  Portuguese), with no comment in the body; the header holds one entry per created or altered piece, as
+  `L<start>[-L<end>] <symbol>: <why>` with a real WHY (for a simple type, why it exists as a distinct type), and
+  on the last line `Enunciado: <section> → <item>`; an entry whose item differs from the main one carries its
+  own `Enunciado:` at its end; line numbers are those of the final file, counting the header, and change along
+  with the file; a type or class entry cites only its declaration line, and a function or piece entry cites the
+  range up to the line that closes it (`)` or `}`, when there is one); and the symbol helps to find the piece
+  again when lines shift; a trivial file (only getters, delegations or single expressions without a rule) needs
+  no header; the only exception to "nothing in the body" is contract KDoc (return and exceptions) on port and
+  public domain API signatures, which the port's header points to; the item is the sub-section title or the bold
+  bullet text of enunciado.md, without emoji, and may cite a contract field; no matching item:
+  `Enunciado: n/a (<change> design Dn)`, never invent one; design references are always `<change> design Dn`; a
+  test file header also carries `Spec: <requirement>` (several separated by `;`, or
+  `Spec: n/a (<change> design Dn)`) before the `Enunciado:` line, and only the class and non-obvious points
+  enter it, since test names already describe the behavior; also allowed in the header: external references and
+  a unit/format the type does not express; technical terms and identifiers stay as in the code; a stale comment
+  is a bug; forbidden: comments that restate the code, noise comments, journal/authorship, commented-out code,
+  banners and TODO/FIXME in delivered code; the user reviews comments manually before each commit; LOW COGNITIVE
+  LOAD and COHERENCE (prefer the solution a human understands fastest; one name per concept; read existing code
+  first and follow its naming/file/package/test patterns; if an existing pattern violates an article the article
+  wins and the divergence is explicit; a reviewer cites the concrete snippet, not an abstract criterion);
+  DESIGN PATTERNS (check whether a recognized pattern fits before designing, never force one, KISS/YAGNI win); DON'T REINVENT THE WHEEL (Kotlin/JDK stdlib,
   then Spring incl. its ecosystem projects, then AWS SDK, then a well-known maintained Kotlin/Spring library,
   before custom code; custom code is for domain rules or when no adequate alternative exists; Art. 1 still wins
   over any library). Arts. 8-10 also apply to change artifacts and build dependencies. design.md records the
   pattern (or why none fits), the rejected library alternative, each codebase-pattern divergence and, for a new
   dependency, version, last release date and cost vs building it (a new dependency must be actively maintained,
-  mature and widely adopted); the project context records only the
-  dependency and why; without a design.md (code change outside an OpenSpec change) the record goes in the
-  commit description and review report. Violating it requires asking the user first.
+  mature and widely adopted); the project context records only the dependency and why; without a design.md (code
+  change outside an OpenSpec change) the record goes in the commit description and review report. Violating it
+  requires asking the user first.
   INDEPENDENT AGENT REVIEW (MANDATORY, procedure in CLAUDE.md): before committing any change, with
-  `./gradlew check` green, a fresh-context read-only subagent (never a fork) reviews the diff against the
-  change artifacts, the constitution, the enunciado contracts and the working rules; findings are blocker/
-  adjustment/suggestion with file:line; iterate until no blocker/adjustment remains, max 3 rounds, then
-  escalate to the user; if the plan itself is wrong, propose fixing the artifact instead of deviating.
+  `./gradlew check` green, a fresh-context read-only subagent (never a fork) reviews the diff against the change artifacts,
+  the constitution (incl. that every altered file has the pt-BR header with entries whose lines and symbols match
+  the file, the WHY and a real enunciado item, with no body comments except contract KDoc, noise or restated
+  code), the
+  enunciado contracts and the working rules; findings are blocker/ adjustment/suggestion with file:line; iterate
+  until no blocker/adjustment remains, max 3 rounds, then escalate to the user; if the plan itself is wrong,
+  propose fixing the artifact instead of deviating.
   Stack: Kotlin 2.3.21, Java 21, Spring Boot 4.1 (WebMVC + Spring Kafka), Gradle 9.5 Kotlin DSL,
   Jackson 3 (tools.jackson — never com.fasterxml), AWS SDK v2 DynamoDB, with apache5-client declared for the
   connection/socket timeouts (DynamoDB Local :8000),
@@ -81,9 +100,10 @@ context: |
   package) enforces this: the layer rule matches `..domain..`/`..port..`/... across all contexts at once; the
   tests forbidding framework imports in domain and ports are parameterized per context — new contexts must be
   added to the test's context list.
-  Conventions: code in English, docs in Portuguese; constructor injection; config via ${ENV:default} in
-  application.yaml + docker-compose env; single config value via constructor @Value, a group that would exceed
-  3 params via an immutable @ConfigurationProperties data class; pinned Docker image versions.
+  Conventions: code in English (identifiers, exception messages, test names), comments and docs in Portuguese;
+  constructor injection; config via ${ENV:default} in application.yaml + docker-compose env; single config value
+  via constructor @Value, a group that would exceed 3 params via an immutable @ConfigurationProperties data
+  class; pinned Docker image versions.
   DynamoDB tables (created idempotently by infra/dynamodb/seed.sh): GreetingMessages (GREETING_TABLE_NAME) and
   AccountBalances (BALANCE_TABLE_NAME). The kit's DynamoDbClient (DynamoDbConfig + DynamoDbProperties) is the
   only client and must be reused; explicit timeouts/retries via DYNAMODB_CONNECTION_TIMEOUT (500ms),
@@ -119,8 +139,10 @@ rules:
   design:
     - State how the change respects the CLAUDE.md constitution (layers touched, ports, value objects).
     - Resolve every ambiguity of `.challenge/enunciado.md` the change touches as an explicit decision with rationale.
-    - Name the design pattern applied (or why none fits) and the library/stdlib alternatives considered for anything that is not domain logic.
-    - State which existing codebase patterns (naming, files, packages) the change follows and justify every divergence.
+    - Name the design pattern applied (or why none fits) and the library/stdlib alternatives considered for
+      anything that is not domain logic.
+    - State which existing codebase patterns (naming, files, packages) the change follows and justify every
+      divergence.
   tasks:
     - Order tasks test-first (TDD) — each spec scenario gets a failing-test task before its implementation task.
     - End with a task "Independent agent review" following the CLAUDE.md procedure (max 3 rounds), then a
