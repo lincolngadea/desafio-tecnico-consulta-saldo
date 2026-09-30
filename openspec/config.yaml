@@ -51,19 +51,19 @@ context: |
   boolean flag params, value objects instead of primitives, immutability, no swallowed exceptions, no `!!`,
   exhaustive `when` on sealed types, no magic values/dead/commented-out code); DRY (of knowledge, rule of
   three), KISS, YAGNI (only what the spec asks; leftovers are documented); tests follow F.I.R.S.T., one behavior
-  each, AAA; comments live ONLY in a file header, ONE `/* ... */` block before `package`, in pt-BR (Brazilian
-  Portuguese), with no comment in the body; the header holds one entry per created or altered piece, as
-  `L<start>[-L<end>] <symbol>: <why>` with a real WHY (for a simple type, why it exists as a distinct type), and
-  on the last line `Enunciado: <section> → <item>`; an entry whose item differs from the main one carries its
-  own `Enunciado:` at its end; line numbers are those of the final file, counting the header, and change along
-  with the file; a type or class entry cites only its declaration line, and a function or piece entry cites the
-  range up to the line that closes it (`)` or `}`, when there is one); and the symbol helps to find the piece
-  again when lines shift; a trivial file (only getters, delegations or single expressions without a rule) needs
-  no header; the only exception to "nothing in the body" is contract KDoc (return and exceptions) on port and
-  public domain API signatures, which the port's header points to; the item is the sub-section title or the bold
-  bullet text of enunciado.md, without emoji, and may cite a contract field; no matching item:
-  `Enunciado: n/a (<change> design Dn)`, never invent one; design references are always `<change> design Dn`; a
-  test file header also carries `Spec: <requirement>` (several separated by `;`, or
+  each, AAA; comments live ONLY in a file header, ONE `/* ... */` block before `package` (in a shell script, `#`
+  lines right after the shebang), in pt-BR (Brazilian Portuguese), with no comment in the body; the header holds
+  one entry per created or altered piece, as `L<start>[-L<end>] <symbol>: <why>` with a real WHY (for a simple
+  type, why it exists as a distinct type), and on the last line `Enunciado: <section> → <item>`; an entry whose
+  item differs from the main one carries its own `Enunciado:` at its end; line numbers are those of the final
+  file, counting the header, and change along with the file; a type or class entry cites only its declaration
+  line, and a function or piece entry cites the range up to the line that closes it (`)` or `}`, when there is
+  one); and the symbol helps to find the piece again when lines shift; a trivial file (only getters, delegations
+  or single expressions without a rule) needs no header; the only exception to "nothing in the body" is contract
+  KDoc (return and exceptions) on port and public domain API signatures, which the port's header points to; the
+  item is the sub-section title or the bold bullet text of enunciado.md, without emoji, and may cite a contract
+  field; no matching item: `Enunciado: n/a (<change> design Dn)`, never invent one; design references are always
+  `<change> design Dn`; a test file header also carries `Spec: <requirement>` (several separated by `;`, or
   `Spec: n/a (<change> design Dn)`) before the `Enunciado:` line, and only the class and non-obvious points
   enter it, since test names already describe the behavior; also allowed in the header: external references and
   a unit/format the type does not express; technical terms and identifiers stay as in the code; a stale comment
@@ -72,15 +72,15 @@ context: |
   LOAD and COHERENCE (prefer the solution a human understands fastest; one name per concept; read existing code
   first and follow its naming/file/package/test patterns; if an existing pattern violates an article the article
   wins and the divergence is explicit; a reviewer cites the concrete snippet, not an abstract criterion);
-  DESIGN PATTERNS (check whether a recognized pattern fits before designing, never force one, KISS/YAGNI win); DON'T REINVENT THE WHEEL (Kotlin/JDK stdlib,
-  then Spring incl. its ecosystem projects, then AWS SDK, then a well-known maintained Kotlin/Spring library,
-  before custom code; custom code is for domain rules or when no adequate alternative exists; Art. 1 still wins
-  over any library). Arts. 8-10 also apply to change artifacts and build dependencies. design.md records the
-  pattern (or why none fits), the rejected library alternative, each codebase-pattern divergence and, for a new
-  dependency, version, last release date and cost vs building it (a new dependency must be actively maintained,
-  mature and widely adopted); the project context records only the dependency and why; without a design.md (code
-  change outside an OpenSpec change) the record goes in the commit description and review report. Violating it
-  requires asking the user first.
+  DESIGN PATTERNS (check whether a recognized pattern fits before designing, never force one, KISS/YAGNI win);
+  DON'T REINVENT THE WHEEL (Kotlin/JDK stdlib, then Spring incl. its ecosystem projects, then AWS SDK, then a
+  well-known maintained Kotlin/Spring library, before custom code; custom code is for domain rules or when no
+  adequate alternative exists; Art. 1 still wins over any library). Arts. 8-10 also apply to change artifacts
+  and build dependencies. design.md records the pattern (or why none fits), the rejected library alternative,
+  each codebase-pattern divergence and, for a new dependency, version, last release date and cost vs building it
+  (a new dependency must be actively maintained, mature and widely adopted); the project context records only
+  the dependency and why; without a design.md (code change outside an OpenSpec change) the record goes in the
+  commit description and review report. Violating it requires asking the user first.
   INDEPENDENT AGENT REVIEW (MANDATORY, procedure in CLAUDE.md): before committing any change, with
   `./gradlew check` green, a fresh-context read-only subagent (never a fork) reviews the diff against the change artifacts,
   the constitution (incl. that every altered file has the pt-BR header with entries whose lines and symbols match

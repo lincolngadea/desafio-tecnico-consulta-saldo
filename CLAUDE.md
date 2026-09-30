@@ -81,7 +81,7 @@ Os Arts. 1 a 6 e 8 a 10 valem para todo código de produção **e de teste**. Os
 
 O código continua se explicando sozinho quanto ao **quê**: antes de comentar o quê, **renomeie, extraia uma função ou crie um tipo**. O comentário existe para o que o código não consegue dizer: o **porquê** e a **rastreabilidade** até o enunciado. Ele fica **só no cabeçalho do arquivo**, para não se misturar com o código.
 
-- **Um cabeçalho por arquivo:** todo arquivo com bloco criado ou alterado abre, antes do `package`, com **um** comentário `/* ... */` e nenhum comentário no corpo. O cabeçalho traz:
+- **Um cabeçalho por arquivo:** todo arquivo com bloco criado ou alterado abre, antes do `package`, com **um** comentário `/* ... */` e nenhum comentário no corpo. Em script shell, o cabeçalho vem logo após o shebang, com linhas `#`. O cabeçalho traz:
   - uma **entrada por trecho** criado ou alterado, no formato `L<início>[-L<fim>] <símbolo>: <porquê>`. O porquê é uma razão real: a intenção, a decisão não óbvia ou a restrição de negócio que motivou a implementação. Para um tipo simples, a razão real é por que ele existe como tipo distinto (ex.: não ser confundido com outro UUID);
   - o **item do enunciado** que motivou a mudança, na **última linha**, no formato `Enunciado: <seção> → <item>`. Uma entrada cujo item difere do principal o traz no fim dela, como `Enunciado: <seção> → <item>`.
 - **Linhas:** a numeração é a do arquivo final, já contando o cabeçalho. A entrada de tipo ou classe cita só a linha da declaração, e a de função ou trecho cita a faixa até a linha que o fecha (`)` ou `}`, quando houver). O símbolo ajuda a reencontrar o trecho quando as linhas se deslocam. Mudou o arquivo, atualize as linhas do cabeçalho.
