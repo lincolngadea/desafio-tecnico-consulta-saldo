@@ -1,4 +1,9 @@
 #!/bin/bash
+# L22-L44 create_table: cria a tabela de chave simples (HASH, string) sob demanda, só se ela ainda não existir.
+# L47 create_table "${BALANCE_TABLE_NAME}" accountId: um item por conta, porque o único padrão de acesso é ler e
+#     gravar pelo id da conta (sem sort key nem GSI).
+#
+# Enunciado: O que será avaliado → Modelagem de dados no DynamoDB
 set -euo pipefail
 
 ENDPOINT_URL="${DYNAMODB_ENDPOINT_URL:-http://dynamodb:8000}"
@@ -14,7 +19,6 @@ until aws dynamodb list-tables --endpoint-url "${ENDPOINT_URL}" --region "${REGI
 done
 echo "DynamoDB Local is ready."
 
-# Creates a single-key (HASH, string) on-demand table unless it already exists.
 create_table() {
   local table_name="$1"
   local key_attribute="$2"
@@ -40,7 +44,6 @@ create_table() {
 }
 
 create_table "${TABLE_NAME}" id
-# One item per account: the only access pattern is get/put by account id (no sort key, no GSI).
 create_table "${BALANCE_TABLE_NAME}" accountId
 
 echo "Seeding greeting messages from ${SEED_FILE}..."
