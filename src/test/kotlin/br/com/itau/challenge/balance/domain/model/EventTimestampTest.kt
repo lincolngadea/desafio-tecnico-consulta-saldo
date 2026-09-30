@@ -1,3 +1,10 @@
+/*
+ * L17 EventTimestampTest: protege o timestamp do evento: só valores positivos em microssegundos conseguem ordenar
+ *     eventos.
+ *
+ * Spec: Invariantes dos value objects do snapshot
+ * Enunciado: O que construir → Ingestão (input via Kafka)
+ */
 package br.com.itau.challenge.balance.domain.model
 
 import br.com.itau.challenge.balance.domain.exception.InvalidEventTimestampException

@@ -1,10 +1,18 @@
+/*
+ * L14 BalanceStorageException: falha do armazenamento de saldo, classificada por poder ou não dar certo tentar de
+ *     novo mais tarde. Assim quem chama pode tentar de novo só o que pode dar certo e degradar de forma controlada
+ *     com a dependência fora do ar.
+ * L16 TransientStorageException: throttling, erro de servidor, timeout ou falha de rede: tentar de novo mais tarde
+ *     pode dar certo.
+ * L18 PermanentStorageException: requisição inválida, tabela inexistente, acesso negado ou dado gravado malformado:
+ *     tentar de novo não ajuda, e só esconderia um problema de configuração ou de dados.
+ *
+ * Enunciado: O que será avaliado → Resiliência
+ */
 package br.com.itau.challenge.balance.port.output
 
-/** Failure of the balance storage, classified by whether a later retry may succeed. */
 sealed class BalanceStorageException(message: String, cause: Throwable) : RuntimeException(message, cause)
 
-/** Throttling, server error, timeout or network failure: retrying later may succeed. */
 class TransientStorageException(message: String, cause: Throwable) : BalanceStorageException(message, cause)
 
-/** Invalid request, missing table, denied access or malformed stored data: retrying will not help. */
 class PermanentStorageException(message: String, cause: Throwable) : BalanceStorageException(message, cause)

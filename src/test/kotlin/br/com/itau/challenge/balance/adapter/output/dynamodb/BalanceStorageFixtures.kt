@@ -1,3 +1,10 @@
+/*
+ * L23-L26 ids e timestamp: dados de exemplo compartilhados pelos testes do adapter de saldo. São os do payload de
+ *     exemplo do enunciado, então os testes usam os valores do próprio contrato.
+ * L29-L35 SNAPSHOT: o saldo de exemplo (`183.12 BRL`) é o do mesmo payload do enunciado.
+ *
+ * Enunciado: O que construir → Ingestão (input via Kafka)
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.domain.model.AccountId

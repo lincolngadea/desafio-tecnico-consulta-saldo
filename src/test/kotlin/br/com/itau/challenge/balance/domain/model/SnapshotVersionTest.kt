@@ -1,3 +1,12 @@
+/*
+ * L20 SnapshotVersionTest: fixa a regra única que decide qual snapshot é o mais recente, inclusive o desempate em
+ *     que a ordem textual e `UUID.compareTo` divergem.
+ * L43 signedNegativeId: `UUID.compareTo` compara longs com sinal, então este id é "menor" como UUID, mas maior como
+ *     texto.
+ *
+ * Spec: Ordem entre versões de snapshot
+ * Enunciado: O que será avaliado → Tratamento de concorrência
+ */
 package br.com.itau.challenge.balance.domain.model
 
 import java.util.UUID
@@ -31,7 +40,6 @@ class SnapshotVersionTest {
 
     @Test
     fun `should break a timestamp tie by text order even when UUID compareTo disagrees`() {
-        // UUID.compareTo compares signed longs, so this id is "smaller" as a UUID but greater as text.
         val signedNegativeId = TransactionId(UUID.fromString("80000000-0000-0000-0000-000000000000"))
         val lower = SnapshotVersion(EventTimestamp(EARLIER_MICROS), lowTransactionId)
         val higher = SnapshotVersion(EventTimestamp(EARLIER_MICROS), signedNegativeId)

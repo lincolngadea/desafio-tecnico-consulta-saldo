@@ -1,3 +1,16 @@
+/*
+ * L50 TIED_WRITES_EVERY: grupos de gravações dividem o mesmo timestamp, para o desempate pelo id da transação
+ *     também ser exercitado sob concorrência.
+ * L52-L53 LOW_TEXT_ID e HIGH_TEXT_ID: UUIDs cuja ordem como long com sinal (`UUID.compareTo`) diverge da ordem
+ *     textual, que é a que o DynamoDB aplica.
+ * L55 DynamoDbBalanceIntegrationTest: exercita o adapter de saldo contra uma instância real do DynamoDB Local, com
+ *     a tabela `AccountBalances` criada pelo seed (rode com `make integration-test`). Mocks não mostram que a
+ *     condição casa com a ordem do domínio nem que ela vale sob gravações concorrentes; a matriz de pares (gravado,
+ *     recebido) confere o DynamoDB contra `SnapshotVersion`, caso a caso.
+ *
+ * Spec: Gravação condicional do snapshot; Leitura do snapshot por conta
+ * Enunciado: O que será avaliado → Tratamento de concorrência
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.domain.model.AccountId
@@ -36,14 +49,9 @@ private const val STORED_MICROS = 1751641364589998L
 private const val CONCURRENT_WRITES = 32
 private const val TIED_WRITES_EVERY = 4
 
-// UUIDs whose signed-long order (UUID.compareTo) disagrees with their text order, which is the one DynamoDB applies.
 private val LOW_TEXT_ID: UUID = UUID.fromString("10000000-0000-4000-8000-000000000000")
 private val HIGH_TEXT_ID: UUID = UUID.fromString("80000000-0000-4000-8000-000000000000")
 
-/**
- * Exercises the balance adapter against a real, running DynamoDB Local instance with the `AccountBalances` table
- * created by the seed. Run with `make integration-test`.
- */
 class DynamoDbBalanceIntegrationTest {
 
     private val tableName = System.getenv("BALANCE_TABLE_NAME") ?: "AccountBalances"

@@ -1,3 +1,11 @@
+/*
+ * L40 DynamoDbBalanceWriterTest: a requisição condicional é o contrato com o DynamoDB: um cliente simulado permite
+ *     conferir a `ConditionExpression` e a classificação das falhas sem infraestrutura, enquanto o comportamento
+ *     real fica no teste de integração.
+ *
+ * Spec: Gravação condicional do snapshot; Classificação das falhas do DynamoDB
+ * Enunciado: O que será avaliado → Tratamento de concorrência
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.domain.model.SnapshotSaveResult

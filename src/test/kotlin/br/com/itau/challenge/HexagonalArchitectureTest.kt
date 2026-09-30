@@ -1,3 +1,12 @@
+/*
+ * L25 HexagonalArchitectureTest: mantém todo contexto delimitado na estrutura hexagonal, para o núcleo nunca
+ *     depender de framework nem de adapter; estende a regra do kit ao contexto balance.
+ * L29-L32 camadas (Layer): as camadas casam em todos os contextos de uma vez, porque um contexto pode ainda não ter
+ *     todas elas.
+ *
+ * Spec: n/a (add-balance-repository design D9)
+ * Enunciado: O que será avaliado → Qualidade de código
+ */
 package br.com.itau.challenge
 
 import com.lemonappdev.konsist.api.Konsist
@@ -15,7 +24,6 @@ private val FRAMEWORK_PACKAGES =
 
 class HexagonalArchitectureTest {
 
-    // Layers are matched in every bounded context at once, because a context may not have all of them yet.
     @Test
     fun `should keep hexagonal layers pointing inward`() {
         val domain = Layer("Domain", "$ROOT_PACKAGE..domain..")

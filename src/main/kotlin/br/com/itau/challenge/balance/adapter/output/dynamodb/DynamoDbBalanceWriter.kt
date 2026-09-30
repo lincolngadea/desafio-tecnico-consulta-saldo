@@ -1,3 +1,14 @@
+/*
+ * L26-L30 STORED_VERSION_IS_OLDER: tradução para o armazenamento da ordem de SnapshotVersion (timestamp e, no
+ *     empate, o id da transação como texto); mantenha as duas em sincronia. O DynamoDB avalia a condição dentro da
+ *     própria gravação, então o compare-and-set é atômico e dispensa leitura prévia.
+ * L33 DynamoDbBalanceWriter: grava o snapshot com um único PutItem condicional, para consumidores concorrentes
+ *     nunca trocarem um saldo mais novo por um mais antigo.
+ * L43-L49 putIfNewer: condição que falha é o resultado esperado para evento antigo ou duplicado (mensagens fora de
+ *     ordem e repetidas), então vira resultado tipado, e não erro.
+ *
+ * Enunciado: O que será avaliado → Tratamento de concorrência
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.domain.model.BalanceSnapshot
@@ -12,7 +23,6 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 private const val TIMESTAMP_PLACEHOLDER = ":timestamp"
 private const val TRANSACTION_ID_PLACEHOLDER = ":transactionId"
 
-// Storage translation of SnapshotVersion ordering (timestamp, then transaction id as text); keep both in sync.
 private const val STORED_VERSION_IS_OLDER =
     "attribute_not_exists($ACCOUNT_ID_ATTRIBUTE) " +
         "OR $LAST_EVENT_TIMESTAMP_ATTRIBUTE < $TIMESTAMP_PLACEHOLDER " +

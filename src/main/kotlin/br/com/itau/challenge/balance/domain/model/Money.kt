@@ -1,3 +1,10 @@
+/*
+ * L16 Money: valor em uma moeda ISO 4217, sempre com exatamente a escala das unidades menores da moeda (ex.: `183.1
+ *     BRL` vira `183.10`). Valores negativos são válidos: o saldo já vem calculado pelo autorizador.
+ * L19-L29 of: casas decimais a mais são rejeitadas, e não arredondadas, para o saldo nunca mudar em silêncio.
+ *
+ * Enunciado: O que construir → Exposição (API REST) → Contrato de resposta → balance.amount
+ */
 package br.com.itau.challenge.balance.domain.model
 
 import br.com.itau.challenge.balance.domain.exception.InvalidMoneyException
@@ -5,10 +12,6 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.Currency
 
-/**
- * An amount in an ISO 4217 currency, always carrying exactly the currency's minor-unit scale
- * (e.g. `183.1 BRL` becomes `183.10`). Negative amounts are valid: balances come ready from the authorizer.
- */
 @ConsistentCopyVisibility
 data class Money private constructor(val amount: BigDecimal, val currency: Currency) {
 

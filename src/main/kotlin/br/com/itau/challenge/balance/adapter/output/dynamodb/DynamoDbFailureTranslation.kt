@@ -1,3 +1,11 @@
+/*
+ * L22-L30 translatingSdkFailures: converte toda falha do SDK na exceção transitória ou permanente do port, para
+ *     nenhum tipo do SDK aparecer na assinatura do port e quem chama poder decidir se tenta de novo.
+ * L37-L43 isTransient: os timeouts vêm primeiro porque também são SdkClientException.
+ * L45 hasIoCause: a falha de I/O pode estar em qualquer nível da cadeia de causas, e não só na causa direta.
+ *
+ * Enunciado: O que será avaliado → Resiliência
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.port.output.BalanceStorageException
@@ -26,7 +34,6 @@ private fun SdkException.toStorageException(operation: String): BalanceStorageEx
     return if (isTransient()) TransientStorageException(description, this) else PermanentStorageException(description, this)
 }
 
-// Timeouts are checked first because they are also SdkClientException.
 private fun SdkException.isTransient(): Boolean =
     when (this) {
         is ApiCallTimeoutException, is ApiCallAttemptTimeoutException -> true

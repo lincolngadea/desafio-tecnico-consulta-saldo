@@ -1,3 +1,15 @@
+/*
+ * L26-L31 atributos do item: layout da tabela AccountBalances: um item por conta, com chave só em accountId, porque
+ *     o único padrão de acesso é "saldo mais recente de uma conta" (add-balance-repository design D1).
+ * L33-L41 toItem: grava o valor como número em notação simples, para o decimal exato sobreviver e o
+ *     `balance.amount` nunca passar por ponto flutuante. Enunciado: O que construir → Exposição (API REST) →
+ *     Contrato de resposta → balance.amount
+ * L43-L57 toBalanceSnapshot: atributo ausente, valor ilegível e violação de invariante do domínio chegam todos como
+ *     IllegalArgumentException; item gravado malformado é falha permanente, porque ler de novo não conserta.
+ *     Enunciado: O que será avaliado → Tratamento de cenários adversos
+ *
+ * Enunciado: O que será avaliado → Modelagem de dados no DynamoDB
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.domain.model.AccountId
@@ -28,7 +40,6 @@ internal fun BalanceSnapshot.toItem(): Map<String, AttributeValue> =
         LAST_TRANSACTION_ID_ATTRIBUTE to stringValue(version.transactionId.value.toString()),
     )
 
-// Missing attributes, unparsable values and domain invariant violations all surface as IllegalArgumentException.
 internal fun Map<String, AttributeValue>.toBalanceSnapshot(): BalanceSnapshot =
     try {
         BalanceSnapshot(

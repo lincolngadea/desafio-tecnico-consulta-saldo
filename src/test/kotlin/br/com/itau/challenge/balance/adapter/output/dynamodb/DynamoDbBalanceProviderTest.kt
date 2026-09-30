@@ -1,3 +1,11 @@
+/*
+ * L29 DynamoDbBalanceProviderTest: a leitura é o que a API expõe ao cliente, então um cliente simulado permite
+ *     conferir, sem infraestrutura, que a consulta é fortemente consistente (nunca um saldo defasado) e que falha
+ *     de leitura é classificada, e não engolida.
+ *
+ * Spec: Leitura do snapshot por conta; Classificação das falhas do DynamoDB
+ * Enunciado: O que construir → Exposição (API REST)
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.port.output.PermanentStorageException

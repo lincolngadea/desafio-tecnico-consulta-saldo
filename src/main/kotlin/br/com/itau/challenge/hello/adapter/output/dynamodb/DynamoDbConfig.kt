@@ -1,3 +1,9 @@
+/*
+ * L22 DynamoDbConfig: cria o cliente DynamoDB da aplicação a partir das propriedades, para todo contexto usar o
+ *     mesmo cliente, com timeouts e tentativas explícitos.
+ *
+ * Enunciado: O que será avaliado → Resiliência
+ */
 package br.com.itau.challenge.hello.adapter.output.dynamodb
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties

@@ -1,6 +1,11 @@
+/*
+ * L9 BalanceSnapshot: o saldo mais recente conhecido de uma conta, calculado pelo autorizador para o evento
+ *     identificado por `version`. O serviço mantém esse saldo como recebido e nunca o recalcula.
+ *
+ * Enunciado: O que construir → Ingestão (input via Kafka)
+ */
 package br.com.itau.challenge.balance.domain.model
 
-/** The latest known balance of an account, as calculated by the authorizer for the event identified by [version]. */
 data class BalanceSnapshot(
     val accountId: AccountId,
     val ownerId: OwnerId,

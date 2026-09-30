@@ -1,3 +1,11 @@
+/*
+ * L20 DynamoDbConfigTest: um timeout ou uma quantidade de tentativas que não chegam ao cliente real voltam a
+ *     valores padrão do SDK sem que ninguém perceba, então o teste confere o cliente criado pela fábrica de
+ *     produção, e não só as propriedades.
+ *
+ * Spec: Timeouts explícitos do cliente DynamoDB
+ * Enunciado: O que será avaliado → Resiliência
+ */
 package br.com.itau.challenge.hello.adapter.output.dynamodb
 
 import org.junit.jupiter.api.Test

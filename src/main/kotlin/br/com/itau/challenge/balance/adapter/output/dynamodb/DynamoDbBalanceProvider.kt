@@ -1,3 +1,11 @@
+/*
+ * L20 DynamoDbBalanceProvider: lê o snapshot com GetItem pela chave, nunca com Scan, para a consulta continuar
+ *     barata em alto volume.
+ * L33-L39 consistentGetRequest: leitura fortemente consistente: logo após um Applied, nunca devolve o snapshot
+ *     anterior (add-balance-repository design D4). Enunciado: O que será avaliado → Tratamento de concorrência
+ *
+ * Enunciado: O que construir → Exposição (API REST)
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.domain.model.AccountId
@@ -22,7 +30,6 @@ class DynamoDbBalanceProvider(
         return if (response.hasItem()) response.item().toBalanceSnapshot() else null
     }
 
-    // Strongly consistent so a read right after an Applied write never returns the previous snapshot (design D4).
     private fun consistentGetRequest(accountId: AccountId): GetItemRequest =
         GetItemRequest
             .builder()

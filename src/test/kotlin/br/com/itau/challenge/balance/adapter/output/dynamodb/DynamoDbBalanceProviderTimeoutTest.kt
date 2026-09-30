@@ -1,3 +1,14 @@
+/*
+ * L29 SCHEDULING_TOLERANCE: folga para o encerramento do cliente e a variação de agendamento, além do limite
+ *     configurado.
+ * L33 DynamoDbBalanceProviderTimeoutTest: prova, com a fábrica de cliente de produção, que um endpoint que aceita
+ *     conexões mas nunca responde não bloqueia quem chamou além do timeout total da chamada.
+ * L35 silentEndpoint: o sistema operacional conclui o handshake TCP pela fila de espera, então o socket aceita mas
+ *     nunca responde.
+ *
+ * Spec: Timeouts explícitos do cliente DynamoDB
+ * Enunciado: O que será avaliado → Resiliência
+ */
 package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.domain.model.AccountId
@@ -15,14 +26,12 @@ import kotlin.test.assertFailsWith
 
 private val API_CALL_TIMEOUT: Duration = Duration.ofSeconds(1)
 
-// Headroom for client shutdown and scheduling jitter on top of the configured bound.
 private val SCHEDULING_TOLERANCE: Duration = Duration.ofMillis(500)
 
 private const val ANY_FREE_PORT = 0
 
 class DynamoDbBalanceProviderTimeoutTest {
 
-    // The operating system completes the TCP handshake from the backlog, so the socket accepts but never answers.
     private val silentEndpoint = ServerSocket(ANY_FREE_PORT)
 
     private val dynamoDbClient =
