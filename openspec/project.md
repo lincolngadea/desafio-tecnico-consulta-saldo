@@ -29,6 +29,7 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 | Persistência | Amazon DynamoDB via AWS SDK for Java v2 (`software.amazon.awssdk:dynamodb`, BOM 2.46.7, com `apache5-client` declarado para os timeouts de conexão e de socket) — **DynamoDB Local** (`amazon/dynamodb-local:3.3.0`, in-memory) |
 | Mensageria | Protocolo Kafka via Spring Kafka; broker local = **Redpanda** `v26.1.14` (single-node, KRaft) |
 | Resiliência | Retry com backoff exponencial e jitter, error handler e DLT pelo Spring Kafka (`ExponentialBackOff`, `DefaultErrorHandler`); circuit breaker com `resilience4j-circuitbreaker` 2.4.0, de versão fixa porque o BOM do Boot não a gerencia e o Spring não tem circuit breaker |
+| Documentação de API | `springdoc-openapi-starter-webmvc-ui` 3.1.1: gera o OpenAPI (`/v3/api-docs`) e a Swagger UI (`/swagger-ui.html`) a partir das anotações dos controllers e dos DTOs, sem arquivo escrito à mão; versão fixa porque o BOM do Boot não a gerencia |
 | Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3, `kotlinx-coroutines-core` (só teste, versão do BOM do Boot, 1.10.2) para disparar gravações concorrentes em paralelo de verdade no teste de integração |
 | Cobertura | JaCoCo 0.8.12, gate mínimo de **90% de instruções** em `./gradlew check` |
 | Containers | Docker multi-stage + Docker Compose |
@@ -65,8 +66,11 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 | `ingestion.{max-retries,pause-duration}` | `INGESTION_MAX_RETRIES`, `INGESTION_PAUSE_DURATION` | `3`, `30s` |
 | `ingestion.backoff.{initial,multiplier,max,jitter}` | `INGESTION_BACKOFF_{INITIAL,MULTIPLIER,MAX,JITTER}` | `200ms`, `2.0`, `2s`, `100ms` |
 | `balance.circuit-breaker.{failure-rate-threshold,sliding-window-size,wait-duration-in-open-state,half-open-calls}` | `BALANCE_CB_{FAILURE_RATE_THRESHOLD,SLIDING_WINDOW_SIZE,WAIT_DURATION_OPEN,HALF_OPEN_CALLS}` | `50`, `10`, `30s`, `3` |
+| `dynamodb.read.timeouts.{connection,socket,api-call-attempt,api-call}` | `DYNAMODB_READ_{CONNECTION,SOCKET,API_CALL_ATTEMPT,API_CALL}_TIMEOUT` | `200ms`, `300ms`, `300ms`, `800ms` |
+| `dynamodb.read.retry.max-attempts` | `DYNAMODB_READ_MAX_ATTEMPTS` | `2` (o máximo aceito: 1 retry) |
+| `balance.api.retry-after` | `BALANCE_API_RETRY_AFTER` | `5s` |
 
-O `DynamoDbClient` do kit (`DynamoDbConfig` + `DynamoDbProperties`) é o único da aplicação, com timeouts e tentativas explícitos. Contextos novos o reutilizam, sem criar outro cliente.
+Há um `DynamoDbClient` por perfil de acesso, ambos em `DynamoDbConfig` (+ `DynamoDbProperties`), com timeouts e tentativas explícitos: o `dynamoDbClient` (`@Primary`, escrita e `hello`) e o `readDynamoDbClient` (leitura de saldo, com orçamento curto e no máximo 1 retry). Contextos novos reutilizam um deles, sem criar outro cliente. O perfil de leitura falha na subida se `maxAttempts` passar de 2 ou se `maxAttempts × api-call-attempt > api-call`.
 
 ## Project Conventions
 
@@ -130,7 +134,7 @@ adapter ──▶ port ──▶ domain
 - `application` não depende de `adapter`. Pode usar `@Service`.
 - `adapter` fala com o núcleo **via ports de entrada**, nunca instancia services diretamente.
 - DTOs de transporte (HTTP/Kafka) ficam no adapter e são convertidos para modelos de domínio ali.
-- O circuit breaker é um Decorator do `BalanceRepository` em `adapter/output/resilience`, exposto como `@Primary`. Cada listener tem container, grupo e commit próprios: propriedades globais de listener (ex.: `spring.kafka.listener.ack-mode`) afetariam o consumer `hello`, e o error handler não pode ser um bean, porque o Boot o aplicaria a todos os containers.
+- O circuit breaker é um Decorator do `BalanceRepository` (escrita) e do `BalanceProvider` (leitura) em `adapter/output/resilience`, exposto como `@Primary`. Os dois circuitos são instâncias independentes, para a API não pausar a ingestão nem o contrário, e partilham uma só definição do que conta como falha. Erros HTTP: toda a aplicação responde `application/problem+json` com `traceId` (do `traceparent` W3C, ou novo, também no MDC do log), e toda resposta de `/balances/**` leva `Cache-Control: no-store`; o saldo nunca é cacheado. Cada listener tem container, grupo e commit próprios: propriedades globais de listener (ex.: `spring.kafka.listener.ack-mode`) afetariam o consumer `hello`, e o error handler não pode ser um bean, porque o Boot o aplicaria a todos os containers.
 - A regra é verificada por `HexagonalArchitectureTest` (Konsist, no pacote raiz). A regra de camadas casa `..domain..`, `..port..` etc. em todos os contextos de uma vez. Os testes que proíbem imports de framework no domínio e nos ports são parametrizados por contexto, então todo contexto novo precisa entrar na lista de contextos do teste.
 
 **Fluxo de exemplo (`hello`):**
@@ -170,7 +174,7 @@ Técnica por camada:
 |-|-|
 | domain | Asserts diretos sobre modelos e exceções |
 | application | Fakes via lambda das `fun interface` de saída (sem Mockito) |
-| adapter web | `@SpringBootTest` + `@AutoConfigureMockMvc`, com o port de saída substituído por `@MockitoBean` |
+| adapter web | `@SpringBootTest` + `@AutoConfigureMockMvc`, com o port de saída substituído por `@MockitoBean`, ou o de entrada por um fake `@Primary` quando o port tem um decorator `@Primary` ou usa value class |
 | adapter Kafka (unit) | Chamar o método do listener direto, com um fake do use case e `JsonMapper` real |
 | adapter DynamoDB (unit) | `mock(DynamoDbClient::class.java)` + `ArgumentCaptor` para validar requests |
 | arquitetura | `HexagonalArchitectureTest` (Konsist) |
@@ -271,8 +275,10 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
 - O gerador cria `account.id` aleatório por evento. Para testar a consulta, use um `account.id` lido do tópico (`make kafka-consume`) ou publique eventos próprios.
 - O tópico precisa ser criado explicitamente, porque a auto-criação está desligada no cluster. **Decidido:** 6 partições para `transacoes-financeiras-processadas` e para a DLT `transacoes-financeiras-processadas.DLT`, criadas com `make kafka-topic-create NAME=<tópico> PARTITIONS=6`.
 - **Ambiguidades do enunciado.** Não assuma uma resposta: cada uma deve ser decidida e justificada no `design.md` da change que a tocar.
-  - Qual status HTTP devolver para conta inexistente e para `accountId` inválido.
-- **Ambiguidades já decididas** (changes `add-balance-repository` e `add-transaction-ingestion`):
+- **Ambiguidades já decididas** (changes `add-balance-repository`, `add-transaction-ingestion` e `add-balance-query-api`):
+  - Conta sem snapshot responde `404`, `accountId` fora da forma canônica de UUID (36 caracteres) responde `400`, dependência indisponível responde `503` com `Retry-After`, e todo erro é `problem+json` com `traceId`.
+  - `updated_at` sai em milissegundos (truncados) e no offset de `America/Sao_Paulo`, com três dígitos fixos de fração.
+  - Sem cache de saldo: a leitura é fortemente consistente e toda resposta de `/balances/**` traz `Cache-Control: no-store`.
   - Todo evento, aprovado ou `DECLINED`, atualiza o snapshot pela mesma regra de versão: o evento traz o saldo calculado e o serviço não o interpreta. Para `DECLINED`, só `updated_at` avança.
   - `updated_at` vem do `transaction.timestamp` do evento que gerou o snapshot.
   - "Mais recente" é definido só por `SnapshotVersion` no domínio: maior `timestamp` e, no empate, maior id da transação na forma textual minúscula (não `UUID.compareTo`). O adapter DynamoDB aplica essa ordem numa `ConditionExpression`.
@@ -310,7 +316,6 @@ A solução será avaliada por (lista do enunciado):
 - A stack deve subir apenas com Docker (`make up`). Imagens com versões fixas.
 - Não commitar segredos. As credenciais `local/local` e o `endpointOverride` do DynamoDB valem só para o ambiente local.
 - Lacunas do template que o desafio exige tratar (ver *Non-Functional Requirements*):
-  - Não há `@RestControllerAdvice`: exceções de domínio viram HTTP 500.
   - O serviço `app` no compose não espera os seeds terminarem (`depends_on` simples).
   - O exemplo usa `Scan` por request. Para consultas, preferir `GetItem`/`Query` por chave.
 

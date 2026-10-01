@@ -1,9 +1,10 @@
 /*
- * L20 DynamoDbConfigTest: um timeout ou uma quantidade de tentativas que não chegam ao cliente real voltam a
- *     valores padrão do SDK sem que ninguém perceba, então o teste confere o cliente criado pela fábrica de
- *     produção, e não só as propriedades.
+ * L21 DynamoDbConfigTest: um timeout ou uma quantidade de tentativas que não chegam ao cliente real voltam a valores
+ *     padrão do SDK sem que ninguém perceba, então o teste confere os clientes criados pela fábrica de produção, e
+ *     não só as propriedades; inclui o cliente de leitura e que o da escrita não mudou.
  *
- * Spec: Timeouts explícitos do cliente DynamoDB
+ * Spec: Timeouts explícitos do cliente DynamoDB; Cliente de leitura com timeouts curtos e configuráveis; Leitura
+ *     repete no máximo uma vez
  * Enunciado: O que será avaliado → Resiliência
  */
 package br.com.itau.challenge.hello.adapter.output.dynamodb
@@ -31,6 +32,7 @@ class DynamoDbConfigTest {
                     apiCall = API_CALL_TIMEOUT,
                 ),
             retry = DynamoDbProperties.Retry(maxAttempts = MAX_ATTEMPTS),
+            read = readProfile(),
         )
 
     @Test
@@ -58,5 +60,41 @@ class DynamoDbConfigTest {
         val overrides = client.serviceClientConfiguration().overrideConfiguration()
 
         assertEquals(MAX_ATTEMPTS, overrides.retryStrategy().orElseThrow().maxAttempts())
+    }
+
+    @Test
+    fun `should configure the read client with its own attempt timeout`() {
+        val client = DynamoDbConfig().readDynamoDbClient(properties)
+
+        val overrides = client.serviceClientConfiguration().overrideConfiguration()
+
+        assertEquals(READ_API_CALL_ATTEMPT_TIMEOUT, overrides.apiCallAttemptTimeout().orElseThrow())
+    }
+
+    @Test
+    fun `should configure the read client with its own total timeout`() {
+        val client = DynamoDbConfig().readDynamoDbClient(properties)
+
+        val overrides = client.serviceClientConfiguration().overrideConfiguration()
+
+        assertEquals(READ_API_CALL_TIMEOUT, overrides.apiCallTimeout().orElseThrow())
+    }
+
+    @Test
+    fun `should configure the read client with at most one retry`() {
+        val client = DynamoDbConfig().readDynamoDbClient(properties)
+
+        val overrides = client.serviceClientConfiguration().overrideConfiguration()
+
+        assertEquals(READ_MAX_ATTEMPTS, overrides.retryStrategy().orElseThrow().maxAttempts())
+    }
+
+    @Test
+    fun `should keep the write client configuration when the read client exists`() {
+        val client = DynamoDbConfig().dynamoDbClient(properties)
+
+        val overrides = client.serviceClientConfiguration().overrideConfiguration()
+
+        assertEquals(API_CALL_TIMEOUT, overrides.apiCallTimeout().orElseThrow())
     }
 }

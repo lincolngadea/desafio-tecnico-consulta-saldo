@@ -1,7 +1,8 @@
 /*
- * L20 DynamoDbBalanceProvider: lê o snapshot com GetItem pela chave, nunca com Scan, para a consulta continuar
- *     barata em alto volume.
- * L33-L39 consistentGetRequest: leitura fortemente consistente: logo após um Applied, nunca devolve o snapshot
+ * L22 DynamoDbBalanceProvider: lê o snapshot com GetItem pela chave, nunca com Scan, para a consulta continuar
+ *     barata em alto volume. Recebe o cliente de leitura, de timeouts curtos e no máximo 1 retry
+ *     (add-balance-query-api design D6). Enunciado: O que construir → Exposição (API REST)
+ * L35-L41 consistentGetRequest: leitura fortemente consistente: logo após um Applied, nunca devolve o snapshot
  *     anterior (add-balance-repository design D4). Enunciado: O que será avaliado → Tratamento de concorrência
  *
  * Enunciado: O que construir → Exposição (API REST)
@@ -11,6 +12,7 @@ package br.com.itau.challenge.balance.adapter.output.dynamodb
 import br.com.itau.challenge.balance.domain.model.AccountId
 import br.com.itau.challenge.balance.domain.model.BalanceSnapshot
 import br.com.itau.challenge.balance.port.output.BalanceProvider
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
@@ -18,7 +20,7 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 
 @Component
 class DynamoDbBalanceProvider(
-    private val dynamoDbClient: DynamoDbClient,
+    @Qualifier("readDynamoDbClient") private val dynamoDbClient: DynamoDbClient,
     @Value("\${dynamodb.balance-table-name}") private val tableName: String,
 ) : BalanceProvider {
 

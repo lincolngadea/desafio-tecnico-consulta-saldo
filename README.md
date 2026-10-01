@@ -179,9 +179,42 @@ GET /hello?name=Ada
 {"message": "Hello, Ada!"}
 ```
 
-**Erro (nome ausente ou em branco):** resposta de erro padrão do Spring Boot (JSON, já que não há views HTML configuradas).
+**Erro:** `name` ausente responde `400` em `application/problem+json`, no mesmo formato de erro da consulta de saldo (ver abaixo). `name` em branco continua sendo uma exceção de domínio do kit, que responde `500` (também em `problem+json`); tratá-la está fora do escopo da consulta de saldo.
 
 Exemplos prontos em [`http/hello.http`](http/hello.http) (execute com a extensão REST Client do VS Code, o cliente HTTP do IntelliJ, ou via `make http`).
+
+### `GET /balances/{accountId}`
+
+Devolve o saldo mais atual da conta. `accountId` é um UUID na forma canônica (maiúsculo ou minúsculo).
+
+```
+GET /balances/5b19c8b6-0cc4-4c72-a989-0c2ee15fa975
+200 OK
+{
+  "id": "5b19c8b6-0cc4-4c72-a989-0c2ee15fa975",
+  "owner": "315e3cfe-f4af-4cd2-b298-a449e614349a",
+  "balance": {"amount": 183.12, "currency": "BRL"},
+  "updated_at": "2025-07-05T18:04:13.433-03:00"
+}
+```
+
+`updated_at` é o `transaction.timestamp` do evento que gerou o saldo, em milissegundos e no fuso `America/Sao_Paulo`.
+
+| Status | Quando | Observação |
+|-|-|-|
+| `200` | A conta tem saldo | |
+| `400` | `accountId` não é um UUID | |
+| `404` | A conta não tem saldo (nenhum evento ingerido) | |
+| `503` | DynamoDB indisponível ou circuito aberto | cabeçalho `Retry-After` (segundos) |
+| `500` | Falha inesperada | sem detalhe interno no corpo |
+
+Todo erro da aplicação é `application/problem+json` (RFC 9457), com `status`, `title`, `detail`, `instance` e `traceId`. O `traceId` é o `trace-id` do cabeçalho `traceparent` (W3C Trace Context), quando válido, ou um id novo; ele também aparece em todo log da requisição.
+
+**Sem cache de saldo:** o requisito é o saldo mais atual, e a leitura já é fortemente consistente. Toda resposta de `/balances/**` traz `Cache-Control: no-store`. A justificativa completa está no `design.md` da change `add-balance-query-api`.
+
+**Leitura resiliente:** a leitura usa um cliente DynamoDB próprio, com timeouts curtos e no máximo 1 retry (pior caso: 800 ms), e um circuit breaker de leitura separado do da escrita.
+
+**Documentação interativa (gerada do código):** Swagger UI em <http://localhost:8080/swagger-ui.html> e especificação OpenAPI em <http://localhost:8080/v3/api-docs>.
 
 ## Mensageria Kafka
 
@@ -266,6 +299,12 @@ Todas têm valor padrão para desenvolvimento local (fora do Docker Compose) e s
 | `BALANCE_CB_SLIDING_WINDOW_SIZE` | `10` | chamadas da janela do circuit breaker |
 | `BALANCE_CB_WAIT_DURATION_OPEN` | `30s` | espera antes de sondar o armazenamento |
 | `BALANCE_CB_HALF_OPEN_CALLS` | `3` | chamadas de teste no estado semiaberto |
+| `DYNAMODB_READ_CONNECTION_TIMEOUT` | `200ms` | timeout de conexão do cliente de leitura |
+| `DYNAMODB_READ_SOCKET_TIMEOUT` | `300ms` | timeout de socket do cliente de leitura |
+| `DYNAMODB_READ_API_CALL_ATTEMPT_TIMEOUT` | `300ms` | timeout de cada tentativa da leitura |
+| `DYNAMODB_READ_API_CALL_TIMEOUT` | `800ms` | timeout da leitura inteira (pior caso da consulta); precisa comportar `maxAttempts × tentativa` |
+| `DYNAMODB_READ_MAX_ATTEMPTS` | `2` | tentativas da leitura (no máximo 2, ou seja, 1 retry) |
+| `BALANCE_API_RETRY_AFTER` | `5s` | valor do `Retry-After` do `503` |
 
 ## Como rodar
 
@@ -373,6 +412,8 @@ Não dependem de nenhuma infraestrutura externa — rodam em qualquer lugar, inc
 Rodam contra infraestrutura **real**, subida via Docker Compose. Ficam propositalmente fora do `check`/`test` para não exigir infra no pipeline padrão.
 
 - `DynamoDbGreetingTemplateIntegrationTest` — grava e lê de uma tabela DynamoDB real (`make db-up`).
+- `BalanceQueryEndToEndIntegrationTest` — publica eventos no Redpanda real, espera a ingestão e consulta `GET /balances/{accountId}` por HTTP real: `200`, `404`, `400`, evento fora de ordem e evento `DECLINED`.
+- `BalanceQueryDependencyUnavailableIntegrationTest` — aponta o DynamoDB para uma porta fechada e confere o `503` com `Retry-After` dentro do orçamento da leitura e a falha rápida com o circuito aberto.
 - `GreetingTemplateConsumerIntegrationTest` — sobe o contexto Spring real (incluindo o `@KafkaListener` de produção) conectado ao broker Redpanda real (`make kafka-up`); publica uma mensagem no tópico e valida que o *listener* da aplicação a consome sozinho.
 
 Rode com `make integration-test` (sobe a infra necessária automaticamente antes de executar).

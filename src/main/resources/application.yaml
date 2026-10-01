@@ -1,3 +1,7 @@
+logging:
+  pattern:
+    correlation: "[%X{traceId:-}] "
+
 spring:
   application:
     name: itau-code-challange-starter-kit
@@ -23,6 +27,14 @@ dynamodb:
     api-call: ${DYNAMODB_API_CALL_TIMEOUT:3s}
   retry:
     max-attempts: ${DYNAMODB_MAX_ATTEMPTS:3}
+  read:
+    timeouts:
+      connection: ${DYNAMODB_READ_CONNECTION_TIMEOUT:200ms}
+      socket: ${DYNAMODB_READ_SOCKET_TIMEOUT:300ms}
+      api-call-attempt: ${DYNAMODB_READ_API_CALL_ATTEMPT_TIMEOUT:300ms}
+      api-call: ${DYNAMODB_READ_API_CALL_TIMEOUT:800ms}
+    retry:
+      max-attempts: ${DYNAMODB_READ_MAX_ATTEMPTS:2}
 
 greeting-templates:
   topic-name: ${GREETING_TEMPLATES_TOPIC:greeting-templates}
@@ -46,3 +58,5 @@ balance:
     sliding-window-size: ${BALANCE_CB_SLIDING_WINDOW_SIZE:10}
     wait-duration-in-open-state: ${BALANCE_CB_WAIT_DURATION_OPEN:30s}
     half-open-calls: ${BALANCE_CB_HALF_OPEN_CALLS:3}
+  api:
+    retry-after: ${BALANCE_API_RETRY_AFTER:5s}

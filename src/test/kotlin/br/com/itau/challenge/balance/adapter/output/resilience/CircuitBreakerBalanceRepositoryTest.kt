@@ -45,7 +45,7 @@ class CircuitBreakerBalanceRepositoryTest {
 
     private val delegate = ScriptedBalanceRepository()
     private val circuitBreaker =
-        BalanceCircuitBreakerConfig().balanceCircuitBreaker(
+        BalanceCircuitBreakerConfig().balanceWriteCircuitBreaker(
             CircuitBreakerProperties(
                 failureRateThreshold = FAILURE_RATE_THRESHOLD,
                 slidingWindowSize = WINDOW_SIZE,

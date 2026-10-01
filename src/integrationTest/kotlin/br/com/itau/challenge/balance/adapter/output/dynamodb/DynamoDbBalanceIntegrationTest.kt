@@ -1,16 +1,16 @@
 /*
- * L57 TIED_WRITES_EVERY: grupos de gravações dividem o mesmo timestamp, para o desempate pelo id da transação
- *     também ser exercitado sob concorrência.
- * L59-L60 LOW_TEXT_ID e HIGH_TEXT_ID: UUIDs cuja ordem como long com sinal (`UUID.compareTo`) diverge da ordem
+ * L58 TIED_WRITES_EVERY: grupos de gravações dividem o mesmo timestamp, para o desempate pelo id da transação também
+ *     ser exercitado sob concorrência.
+ * L60-L61 LOW_TEXT_ID e HIGH_TEXT_ID: UUIDs cuja ordem como long com sinal (`UUID.compareTo`) diverge da ordem
  *     textual, que é a que o DynamoDB aplica.
- * L62 DynamoDbBalanceIntegrationTest: exercita o adapter de saldo contra uma instância real do DynamoDB Local, com
- *     a tabela `AccountBalances` criada pelo seed (rode com `make integration-test`). Mocks não mostram que a
- *     condição casa com a ordem do domínio nem que ela vale sob gravações concorrentes; a matriz de pares (gravado,
- *     recebido) confere o DynamoDB contra `SnapshotVersion`, caso a caso.
- * L187-L204 `should end with the greatest version when snapshots of the same account are written concurrently`: as
+ * L63 DynamoDbBalanceIntegrationTest: exercita o adapter de saldo contra uma instância real do DynamoDB Local, com a
+ *     tabela `AccountBalances` criada pelo seed (rode com `make integration-test`). Mocks não mostram que a condição
+ *     casa com a ordem do domínio nem que ela vale sob gravações concorrentes; a matriz de pares (gravado, recebido)
+ *     confere o DynamoDB contra `SnapshotVersion`, caso a caso.
+ * L188-L205 `should end with the greatest version when snapshots of the same account are written concurrently`: as
  *     escritas são disparadas ao mesmo tempo por coroutines em `Dispatchers.IO`, liberadas por um portão
- *     (`CompletableDeferred`), para a corrida ser real: um `runBlocking` sozinho usaria uma thread e serializaria
- *     as chamadas bloqueantes do SDK.
+ *     (`CompletableDeferred`), para a corrida ser real: um `runBlocking` sozinho usaria uma thread e serializaria as
+ *     chamadas bloqueantes do SDK.
  *
  * Spec: Gravação condicional do snapshot; Leitura do snapshot por conta
  * Enunciado: O que será avaliado → Tratamento de concorrência
@@ -27,6 +27,7 @@ import br.com.itau.challenge.balance.domain.model.SnapshotVersion
 import br.com.itau.challenge.balance.domain.model.TransactionId
 import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbConfig
 import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbProperties
+import br.com.itau.challenge.hello.adapter.output.dynamodb.readProfile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -238,6 +239,7 @@ class DynamoDbBalanceIntegrationTest {
                     apiCall = Duration.ofSeconds(5),
                 ),
             retry = DynamoDbProperties.Retry(maxAttempts = 3),
+            read = readProfile(),
         )
 
     data class VersionPair(

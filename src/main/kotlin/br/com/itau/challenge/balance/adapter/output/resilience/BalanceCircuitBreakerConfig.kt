@@ -1,18 +1,26 @@
 /*
- * L27 BALANCE_STORAGE_CIRCUIT_BREAKER: nome do circuito, que aparece na mensagem de `StorageUnavailableException` e
- *     identifica o circuito em métricas futuras.
- * L31 BalanceCircuitBreakerConfig: isola em uma configuração a criação do circuit breaker e a decoração do
- *     repositório de saldo.
- * L34-L47 balanceCircuitBreaker: só `TransientStorageException` conta como falha; `PermanentStorageException` é
- *     ignorada porque nada diz sobre a saúde da dependência. `minimumNumberOfCalls` igual à janela evita abrir o
- *     circuito com poucas chamadas.
- * L51-L54 resilientBalanceRepository: `@Primary` faz o caso de uso receber o repositório protegido; o writer entra
+ * L35-L36 BALANCE_STORAGE_WRITE_CIRCUIT_BREAKER e BALANCE_STORAGE_READ_CIRCUIT_BREAKER: nomes dos circuitos, que
+ *     aparecem na mensagem de `StorageUnavailableException` e identificam cada circuito em métricas futuras.
+ * L42 BalanceCircuitBreakerConfig: isola em uma configuração a criação dos circuit breakers e a decoração do
+ *     repositório e do provider de saldo.
+ * L45-L46 balanceWriteCircuitBreaker: circuito da escrita, que pausa a ingestão quando abre; é instância própria
+ *     para a API não pausar o consumer (add-balance-query-api design D7). O nome diz a que lado o circuito serve,
+ *     porque há dois beans do mesmo tipo.
+ * L49-L50 balanceReadCircuitBreaker: circuito da leitura, independente do da escrita: janelas, sondas e perfis de
+ *     timeout diferentes não devem se misturar.
+ * L54-L57 resilientBalanceRepository: `@Primary` faz o caso de uso receber o repositório protegido; o writer entra
  *     por qualificador de nome para este pacote não depender da classe concreta do adapter DynamoDB.
+ * L61-L64 resilientBalanceProvider: `@Primary` faz o caso de consulta receber o provider protegido, com o mesmo
+ *     critério de qualificador do repositório.
+ * L66-L76 storageCircuitBreakerConfig: definição única do que conta como falha, compartilhada pelos dois circuitos
+ *     (DRY): só `TransientStorageException` conta; `PermanentStorageException` é ignorada porque nada diz sobre a
+ *     saúde da dependência. `minimumNumberOfCalls` igual à janela evita abrir o circuito com poucas chamadas.
  *
  * Enunciado: O que será avaliado → Resiliência
  */
 package br.com.itau.challenge.balance.adapter.output.resilience
 
+import br.com.itau.challenge.balance.port.output.BalanceProvider
 import br.com.itau.challenge.balance.port.output.BalanceRepository
 import br.com.itau.challenge.balance.port.output.PermanentStorageException
 import br.com.itau.challenge.balance.port.output.TransientStorageException
@@ -24,32 +32,46 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
 
-private const val BALANCE_STORAGE_CIRCUIT_BREAKER = "balance-storage"
+private const val BALANCE_STORAGE_WRITE_CIRCUIT_BREAKER = "balance-storage"
+private const val BALANCE_STORAGE_READ_CIRCUIT_BREAKER = "balance-storage-read"
+private const val WRITE_CIRCUIT_BREAKER_BEAN = "balanceWriteCircuitBreaker"
+private const val READ_CIRCUIT_BREAKER_BEAN = "balanceReadCircuitBreaker"
 
 @Configuration
 @EnableConfigurationProperties(CircuitBreakerProperties::class)
 class BalanceCircuitBreakerConfig {
 
     @Bean
-    fun balanceCircuitBreaker(properties: CircuitBreakerProperties): CircuitBreaker =
-        CircuitBreaker.of(
-            BALANCE_STORAGE_CIRCUIT_BREAKER,
-            CircuitBreakerConfig
-                .custom()
-                .failureRateThreshold(properties.failureRateThreshold)
-                .slidingWindowSize(properties.slidingWindowSize)
-                .minimumNumberOfCalls(properties.slidingWindowSize)
-                .waitDurationInOpenState(properties.waitDurationInOpenState)
-                .permittedNumberOfCallsInHalfOpenState(properties.halfOpenCalls)
-                .recordExceptions(TransientStorageException::class.java)
-                .ignoreExceptions(PermanentStorageException::class.java)
-                .build(),
-        )
+    fun balanceWriteCircuitBreaker(properties: CircuitBreakerProperties): CircuitBreaker =
+        CircuitBreaker.of(BALANCE_STORAGE_WRITE_CIRCUIT_BREAKER, storageCircuitBreakerConfig(properties))
+
+    @Bean
+    fun balanceReadCircuitBreaker(properties: CircuitBreakerProperties): CircuitBreaker =
+        CircuitBreaker.of(BALANCE_STORAGE_READ_CIRCUIT_BREAKER, storageCircuitBreakerConfig(properties))
 
     @Bean
     @Primary
     fun resilientBalanceRepository(
         @Qualifier("dynamoDbBalanceWriter") delegate: BalanceRepository,
-        balanceCircuitBreaker: CircuitBreaker,
-    ): BalanceRepository = CircuitBreakerBalanceRepository(delegate, balanceCircuitBreaker)
+        @Qualifier(WRITE_CIRCUIT_BREAKER_BEAN) circuitBreaker: CircuitBreaker,
+    ): BalanceRepository = CircuitBreakerBalanceRepository(delegate, circuitBreaker)
+
+    @Bean
+    @Primary
+    fun resilientBalanceProvider(
+        @Qualifier("dynamoDbBalanceProvider") delegate: BalanceProvider,
+        @Qualifier(READ_CIRCUIT_BREAKER_BEAN) circuitBreaker: CircuitBreaker,
+    ): BalanceProvider = CircuitBreakerBalanceProvider(delegate, circuitBreaker)
+
+    private fun storageCircuitBreakerConfig(properties: CircuitBreakerProperties): CircuitBreakerConfig =
+        CircuitBreakerConfig
+            .custom()
+            .failureRateThreshold(properties.failureRateThreshold)
+            .slidingWindowSize(properties.slidingWindowSize)
+            .minimumNumberOfCalls(properties.slidingWindowSize)
+            .waitDurationInOpenState(properties.waitDurationInOpenState)
+            .permittedNumberOfCallsInHalfOpenState(properties.halfOpenCalls)
+            .recordExceptions(TransientStorageException::class.java)
+            .ignoreExceptions(PermanentStorageException::class.java)
+            .build()
 }
