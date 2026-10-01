@@ -73,8 +73,8 @@ O repositório MUST gravar o snapshot de uma conta somente se a conta não tiver
 - **THEN** o resultado é `Applied` exatamente quando `SnapshotVersion` do recebido é mais recente que o do armazenado
 
 #### Scenario: Gravações concorrentes da mesma conta
-- **WHEN** várias versões da mesma conta são gravadas em paralelo, em ordem embaralhada
-- **THEN** ao final a leitura devolve o snapshot de maior `SnapshotVersion`
+- **WHEN** N escritas da mesma conta, com versões distintas e algumas com o mesmo timestamp, são disparadas ao mesmo tempo, em ordem aleatória, por coroutines em paralelo contra o DynamoDB Local
+- **THEN** nenhuma escrita falha e, ao final, a leitura devolve o snapshot de maior `SnapshotVersion`
 
 #### Scenario: Um item por conta
 - **WHEN** vários snapshots da mesma conta são gravados
