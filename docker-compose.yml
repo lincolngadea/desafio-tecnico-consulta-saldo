@@ -5,6 +5,7 @@ services:
       target: runtime
     ports:
       - "8080:8080"
+    stop_grace_period: 40s
     environment:
       DYNAMODB_ENDPOINT: http://dynamodb:8000
       DYNAMODB_REGION: us-east-1
@@ -17,6 +18,20 @@ services:
       DYNAMODB_MAX_ATTEMPTS: 3
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       GREETING_TEMPLATES_TOPIC: greeting-templates
+      TRANSACTIONS_TOPIC: transacoes-financeiras-processadas
+      TRANSACTIONS_DLT_TOPIC: transacoes-financeiras-processadas.DLT
+      TRANSACTIONS_CONSUMER_GROUP_ID: balance-transaction-ingestion
+      INGESTION_CONCURRENCY: 1
+      INGESTION_MAX_RETRIES: 3
+      INGESTION_BACKOFF_INITIAL: 200ms
+      INGESTION_BACKOFF_MULTIPLIER: 2.0
+      INGESTION_BACKOFF_MAX: 2s
+      INGESTION_BACKOFF_JITTER: 100ms
+      INGESTION_PAUSE_DURATION: 30s
+      BALANCE_CB_FAILURE_RATE_THRESHOLD: 50
+      BALANCE_CB_SLIDING_WINDOW_SIZE: 10
+      BALANCE_CB_WAIT_DURATION_OPEN: 30s
+      BALANCE_CB_HALF_OPEN_CALLS: 3
     depends_on:
       - dynamodb
       - dynamodb-seed

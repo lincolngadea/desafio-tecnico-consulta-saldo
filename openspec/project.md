@@ -28,6 +28,7 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 | JSON | Jackson 3 (`tools.jackson`, `jackson-module-kotlin`). **Não** usar `com.fasterxml.jackson.databind` |
 | Persistência | Amazon DynamoDB via AWS SDK for Java v2 (`software.amazon.awssdk:dynamodb`, BOM 2.46.7, com `apache5-client` declarado para os timeouts de conexão e de socket) — **DynamoDB Local** (`amazon/dynamodb-local:3.3.0`, in-memory) |
 | Mensageria | Protocolo Kafka via Spring Kafka; broker local = **Redpanda** `v26.1.14` (single-node, KRaft) |
+| Resiliência | Retry com backoff exponencial e jitter, error handler e DLT pelo Spring Kafka (`ExponentialBackOff`, `DefaultErrorHandler`); circuit breaker com `resilience4j-circuitbreaker` 2.4.0, de versão fixa porque o BOM do Boot não a gerencia e o Spring não tem circuit breaker |
 | Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3, `kotlinx-coroutines-core` (só teste, versão do BOM do Boot, 1.10.2) para disparar gravações concorrentes em paralelo de verdade no teste de integração |
 | Cobertura | JaCoCo 0.8.12, gate mínimo de **90% de instruções** em `./gradlew check` |
 | Containers | Docker multi-stage + Docker Compose |
@@ -60,6 +61,10 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 | `dynamodb.timeouts.{connection,socket,api-call-attempt,api-call}` | `DYNAMODB_{CONNECTION,SOCKET,API_CALL_ATTEMPT,API_CALL}_TIMEOUT` | `500ms`, `1s`, `1s`, `3s` |
 | `dynamodb.retry.max-attempts` | `DYNAMODB_MAX_ATTEMPTS` | `3` |
 | `greeting-templates.topic-name` | `GREETING_TEMPLATES_TOPIC` | `greeting-templates` |
+| `ingestion.{topic-name,dlt-topic-name,consumer-group-id,concurrency}` | `TRANSACTIONS_TOPIC`, `TRANSACTIONS_DLT_TOPIC`, `TRANSACTIONS_CONSUMER_GROUP_ID`, `INGESTION_CONCURRENCY` | `transacoes-financeiras-processadas`, `transacoes-financeiras-processadas.DLT`, `balance-transaction-ingestion`, `1` |
+| `ingestion.{max-retries,pause-duration}` | `INGESTION_MAX_RETRIES`, `INGESTION_PAUSE_DURATION` | `3`, `30s` |
+| `ingestion.backoff.{initial,multiplier,max,jitter}` | `INGESTION_BACKOFF_{INITIAL,MULTIPLIER,MAX,JITTER}` | `200ms`, `2.0`, `2s`, `100ms` |
+| `balance.circuit-breaker.{failure-rate-threshold,sliding-window-size,wait-duration-in-open-state,half-open-calls}` | `BALANCE_CB_{FAILURE_RATE_THRESHOLD,SLIDING_WINDOW_SIZE,WAIT_DURATION_OPEN,HALF_OPEN_CALLS}` | `50`, `10`, `30s`, `3` |
 
 O `DynamoDbClient` do kit (`DynamoDbConfig` + `DynamoDbProperties`) é o único da aplicação, com timeouts e tentativas explícitos. Contextos novos o reutilizam, sem criar outro cliente.
 
@@ -74,7 +79,8 @@ O `DynamoDbClient` do kit (`DynamoDbConfig` + `DynamoDbProperties`) é o único 
 - **Contratos vêm do enunciado:** `.challenge/enunciado.md` é a fonte da verdade para o payload do tópico, o request e o response.
   - Toda change que tocar um contrato deve conferir lá os nomes de campo, os tipos e os formatos: snake_case, µs, ISO 8601, UUID.
   - Nunca invente, renomeie ou "melhore" um campo. O que o enunciado não define vira uma decisão explícita no `design.md` da change.
-- **Constituição de qualidade de código** (Clean Architecture, SOLID, Clean Code, DRY/KISS/YAGNI, testes, comentários, baixa carga cognitiva e coerência com o codebase, design patterns e não reinventar a roda): é **inegociável** e vale também para os testes. O texto completo está no `CLAUDE.md`.
+- **Constituição de qualidade de código** (Clean Architecture, SOLID, Clean Code, DRY/KISS/YAGNI, testes, comentários, baixa carga cognitiva e coerência com o codebase, design patterns, não reinventar a roda e conformidade com o enunciado): é **inegociável** e vale também para os testes. O texto completo está no `CLAUDE.md`.
+  - Conformidade com o enunciado (Art. 11): toda implementação é validada contra `.challenge/enunciado.md`, item por item, com evidência (teste, arquivo ou comando executado), antes de ser dada como pronta; divergência entre implementação, spec ou design e o enunciado: pare e pergunte, e o enunciado prevalece salvo decisão explícita do usuário no `design.md`; o revisor independente refaz a validação por conta própria.
   - Comentários (Art. 6): ficam **só no cabeçalho do arquivo**, um comentário `/* ... */` antes do `package` (em script shell, linhas `#` logo após o shebang), em português (pt-BR), e nenhum comentário no corpo. O cabeçalho tem uma entrada por trecho criado ou alterado, no formato `L<início>[-L<fim>] <símbolo>: <porquê>`, com o porquê real (para tipo simples, por que existe como tipo distinto), e na última linha `Enunciado: <seção> → <item>`. Uma entrada cujo item difere do principal o traz no fim dela. A numeração é a do arquivo final, contando o cabeçalho, e muda junto com o arquivo. A entrada de tipo ou classe cita só a linha da declaração, e a de função ou trecho cita a faixa até a linha que o fecha (`)` ou `}`, quando houver); o símbolo ajuda a reencontrar o trecho quando as linhas se deslocam. Arquivo trivial (só getter, delegação ou expressão única sem regra) dispensa cabeçalho.
   - A única exceção ao "nada no corpo" é o KDoc de contrato (retorno e exceções) na assinatura de ports e da API pública do domínio, quando a assinatura não basta. O cabeçalho do port aponta para ele.
   - O item é o título da subseção ou o texto em negrito do bullet do enunciado, sem emoji, e pode citar o campo do contrato (`O que construir → Exposição (API REST) → Contrato de resposta → balance.amount`). Sem item: `Enunciado: n/a (<change> design Dn)`, e nunca se inventa um item. Referência ao `design.md` sempre na forma `<change> design Dn`.
@@ -124,6 +130,7 @@ adapter ──▶ port ──▶ domain
 - `application` não depende de `adapter`. Pode usar `@Service`.
 - `adapter` fala com o núcleo **via ports de entrada**, nunca instancia services diretamente.
 - DTOs de transporte (HTTP/Kafka) ficam no adapter e são convertidos para modelos de domínio ali.
+- O circuit breaker é um Decorator do `BalanceRepository` em `adapter/output/resilience`, exposto como `@Primary`. Cada listener tem container, grupo e commit próprios: propriedades globais de listener (ex.: `spring.kafka.listener.ack-mode`) afetariam o consumer `hello`, e o error handler não pode ser um bean, porque o Boot o aplicaria a todos os containers.
 - A regra é verificada por `HexagonalArchitectureTest` (Konsist, no pacote raiz). A regra de camadas casa `..domain..`, `..port..` etc. em todos os contextos de uma vez. Os testes que proíbem imports de framework no domínio e nos ports são parametrizados por contexto, então todo contexto novo precisa entrar na lista de contextos do teste.
 
 **Fluxo de exemplo (`hello`):**
@@ -218,6 +225,7 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
 | `make kafka-up` | Sobe `redpanda` + `redpanda-seed` + `redpanda-console` |
 | `make kafka-seed` | Reexecuta o seed (republica as mensagens; tópicos são append-only) |
 | `make kafka-topic-create NAME=<t> [PARTITIONS=1]` | Cria tópico. **Auto-criação de tópicos está desligada.** |
+| `make kafka-topics-ingestion` | Cria, se não existirem, `transacoes-financeiras-processadas` e `transacoes-financeiras-processadas.DLT` com 6 partições, via `kafka-topic-create`; o `make integration-test` o executa |
 | `make kafka-produce-accounts-events TOPIC=<t> [COUNT=100]` | Publica eventos de conta aleatórios |
 | `make kafka-produce-transactions-events TOPIC=<t> [COUNT=100]` | Publica eventos de transação + conta aleatórios |
 | `make kafka-consume TOPIC=<t>` | Imprime as mensagens do tópico (timeout de 5s) |
@@ -261,11 +269,11 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
 
 - Timestamps em **microssegundos** desde a epoch. Valores monetários com 2 casas decimais, moeda `BRL`.
 - O gerador cria `account.id` aleatório por evento. Para testar a consulta, use um `account.id` lido do tópico (`make kafka-consume`) ou publique eventos próprios.
-- O tópico precisa ser criado explicitamente, porque a auto-criação está desligada no cluster. A quantidade de partições fica a nosso critério.
+- O tópico precisa ser criado explicitamente, porque a auto-criação está desligada no cluster. **Decidido:** 6 partições para `transacoes-financeiras-processadas` e para a DLT `transacoes-financeiras-processadas.DLT`, criadas com `make kafka-topic-create NAME=<tópico> PARTITIONS=6`.
 - **Ambiguidades do enunciado.** Não assuma uma resposta: cada uma deve ser decidida e justificada no `design.md` da change que a tocar.
-  - Se um evento `DECLINED` atualiza o snapshot.
   - Qual status HTTP devolver para conta inexistente e para `accountId` inválido.
-- **Ambiguidades já decididas** (change `add-balance-repository`):
+- **Ambiguidades já decididas** (changes `add-balance-repository` e `add-transaction-ingestion`):
+  - Todo evento, aprovado ou `DECLINED`, atualiza o snapshot pela mesma regra de versão: o evento traz o saldo calculado e o serviço não o interpreta. Para `DECLINED`, só `updated_at` avança.
   - `updated_at` vem do `transaction.timestamp` do evento que gerou o snapshot.
   - "Mais recente" é definido só por `SnapshotVersion` no domínio: maior `timestamp` e, no empate, maior id da transação na forma textual minúscula (não `UUID.compareTo`). O adapter DynamoDB aplica essa ordem numa `ConditionExpression`.
 
@@ -303,7 +311,6 @@ A solução será avaliada por (lista do enunciado):
 - Não commitar segredos. As credenciais `local/local` e o `endpointOverride` do DynamoDB valem só para o ambiente local.
 - Lacunas do template que o desafio exige tratar (ver *Non-Functional Requirements*):
   - Não há `@RestControllerAdvice`: exceções de domínio viram HTTP 500.
-  - Não há error handler nem DLT customizados no Kafka.
   - O serviço `app` no compose não espera os seeds terminarem (`depends_on` simples).
   - O exemplo usa `Scan` por request. Para consultas, preferir `GetItem`/`Query` por chave.
 

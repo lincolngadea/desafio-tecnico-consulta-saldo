@@ -1,0 +1,85 @@
+/*
+ * L25 IngestionRecovererTest: cobre a decisão entre DLT e pausa para cada tipo de falha, incluindo a falha não
+ *     classificada, que vai para a DLT.
+ *
+ * Spec: Erro permanente vai para a DLT com o motivo; Dependência indisponível pausa as partições em vez de descartar
+ * Enunciado: O que será avaliado → Resiliência
+ */
+package br.com.itau.challenge.balance.adapter.input.kafka
+
+import br.com.itau.challenge.balance.port.output.PermanentStorageException
+import br.com.itau.challenge.balance.port.output.StorageUnavailableException
+import br.com.itau.challenge.balance.port.output.TransientStorageException
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
+import org.springframework.kafka.listener.ListenerExecutionFailedException
+import java.time.Duration
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+
+private val RECORD = ConsumerRecord("topic", 0, 0L, "key", "value")
+private val PAUSE_DURATION: Duration = Duration.ofSeconds(30)
+
+class IngestionRecovererTest {
+
+    private val deadLettered = mutableListOf<Exception>()
+    private var pauses = 0
+    private val recoverer =
+        IngestionRecoverer(
+            { _, failure -> deadLettered.add(failure) },
+            {
+                pauses++
+                PAUSE_DURATION
+            },
+        )
+
+    private fun listenerFailure(cause: Throwable) = ListenerExecutionFailedException("listener failed", cause)
+
+    @ParameterizedTest
+    @MethodSource("permanentFailures")
+    fun `should dead letter the record without pausing when the failure is permanent`(cause: Throwable) {
+        val failure = listenerFailure(cause)
+
+        recoverer.accept(RECORD, failure)
+
+        assertEquals(listOf<Exception>(failure), deadLettered)
+        assertEquals(0, pauses)
+    }
+
+    @ParameterizedTest
+    @MethodSource("dependencyFailures")
+    fun `should pause the listener and keep the record when the dependency is failing`(cause: Throwable) {
+        assertFailsWith<ListenerPausedException> { recoverer.accept(RECORD, listenerFailure(cause)) }
+
+        assertEquals(1, pauses)
+        assertEquals(emptyList(), deadLettered)
+    }
+
+    @Test
+    fun `should keep the failure as the cause when the listener is paused`() {
+        val failure = listenerFailure(TransientStorageException("throttled", RuntimeException()))
+
+        val paused = assertFailsWith<ListenerPausedException> { recoverer.accept(RECORD, failure) }
+
+        assertEquals(failure, paused.cause)
+    }
+
+    companion object {
+        @JvmStatic
+        fun permanentFailures(): List<Throwable> =
+            listOf(
+                MalformedTransactionEventException("bad json", RuntimeException()),
+                PermanentStorageException("access denied", RuntimeException()),
+                IllegalStateException("unclassified failure"),
+            )
+
+        @JvmStatic
+        fun dependencyFailures(): List<Throwable> =
+            listOf(
+                TransientStorageException("throttled", RuntimeException()),
+                StorageUnavailableException("circuit open", RuntimeException()),
+            )
+    }
+}

@@ -76,6 +76,16 @@ kafka-topic-create: ## Create a Kafka topic on Redpanda (usage: make kafka-topic
 	$(COMPOSE) run --rm --entrypoint rpk redpanda-seed \
 		topic create $(NAME) --brokers redpanda:9092 --partitions $(PARTITIONS) --replicas 1
 
+.PHONY: kafka-topics-ingestion
+kafka-topics-ingestion: ## Create (idempotent) the transactions topic and its DLT with 6 partitions each
+	@for topic in transacoes-financeiras-processadas transacoes-financeiras-processadas.DLT; do \
+		if $(COMPOSE) run --rm --entrypoint rpk redpanda-seed topic describe $$topic --brokers redpanda:9092 >/dev/null 2>&1; then \
+			echo "$$topic already exists"; \
+		else \
+			$(MAKE) --no-print-directory kafka-topic-create NAME=$$topic PARTITIONS=6; \
+		fi; \
+	done
+
 .PHONY: kafka-produce-accounts-events
 kafka-produce-accounts-events: ## Produce random account-event JSON messages to a Kafka topic (usage: make kafka-produce-accounts-events TOPIC=my-topic [COUNT=100])
 	@if [ -z "$(TOPIC)" ]; then \
@@ -110,6 +120,7 @@ kafka-down: ## Stop Redpanda + Console
 .PHONY: integration-test
 integration-test: db-up kafka-up ## Run all integration tests against live DynamoDB + Redpanda
 	$(COMPOSE) wait dynamodb-seed redpanda-seed
+	$(MAKE) --no-print-directory kafka-topics-ingestion
 	./gradlew integrationTest
 
 .PHONY: clean-containers

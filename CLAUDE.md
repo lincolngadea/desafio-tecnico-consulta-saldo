@@ -12,12 +12,13 @@ Detalhes em `openspec/project.md` → *Working Rules*.
 - **Domínio sem dependência de framework.**
 - **Um commit por change do OpenSpec.**
 - **Contratos (payload, request, response) vêm de `.challenge/enunciado.md`.** Confira os nomes de campo e os formatos lá e nunca os invente.
+- **Toda implementação é validada contra `.challenge/enunciado.md`** antes de ser dada como pronta (Art. 11, inegociável).
 - **A constituição de qualidade de código é inegociável** (seção abaixo).
 - **Toda implementação passa por revisão de um agente independente antes do commit** (seção abaixo).
 
 ## Constituição — qualidade de código (INEGOCIÁVEL)
 
-Os Arts. 1 a 6 e 8 a 10 valem para todo código de produção **e de teste**. Os Arts. 8 a 10 valem também para os artefatos da change (`design.md`, specs) e para as dependências do `build.gradle.kts`, e o que eles mandam registrar vai no `design.md`. Uma alteração de código fora de uma change não tem `design.md`, então o registro vai na descrição do commit e no relatório de revisão. O Art. 7 vale para toda resposta ao usuário. Prazo, atalho ou conveniência não justificam violar um artigo.
+Os Arts. 1 a 6 e 8 a 10 valem para todo código de produção **e de teste**. Os Arts. 8 a 10 valem também para os artefatos da change (`design.md`, specs) e para as dependências do `build.gradle.kts`, e o que eles mandam registrar vai no `design.md`. Uma alteração de código fora de uma change não tem `design.md`, então o registro vai na descrição do commit e no relatório de revisão. O Art. 7 vale para toda resposta ao usuário. O Art. 11 vale para toda implementação, antes de ela ser dada como pronta. Prazo, atalho ou conveniência não justificam violar um artigo.
 
 - Se cumprir um requisito exigir uma violação, **pare e pergunte** ao usuário. Não abra exceção por conta própria.
 - Em conflito entre objetivos, prevalece esta ordem: **correção > clareza > simplicidade > desempenho**.
@@ -135,6 +136,15 @@ Código é lido muito mais vezes do que escrito. Entre duas soluções que atend
 - **Dependência nova** precisa de manutenção ativa, maturidade e adoção ampla, e o custo de tê-la deve ser menor que o de implementar. O `design.md` registra a evidência mínima: versão, data da última release e uma linha sobre o custo de tê-la contra o de implementar. Ela é declarada no build, e o contexto do projeto (Regra 2 abaixo) registra só a dependência e o motivo.
 - **O Art. 1 prevalece:** biblioteca de infraestrutura não entra no domínio, e uma que exija abrir mão da arquitetura (por exemplo, estado mutável no domínio) é adaptada na borda ou descartada.
 
+### Art. 11 — Conformidade com o enunciado
+
+- **O `.challenge/enunciado.md` é a fonte da verdade do resultado esperado.** Spec, design e código o interpretam, e uma interpretação pode estar errada. Por isso **toda implementação é validada contra o enunciado**, e não só contra a spec da change, antes de ser dada como pronta.
+- **Como:** ao concluir uma implementação (de uma change ou fora dela), o autor percorre as seções do enunciado que ela toca (*O que construir*, contratos de payload e de resposta, *Como começar*, *O que será avaliado*) e confere **item por item** que o entregue faz o que está escrito: nomes de campo, tipos, formatos, comandos e critérios de avaliação.
+- **A conferência é concreta:** cada item do enunciado tocado aponta para uma evidência (teste, arquivo ou comando executado). Quando o enunciado descreve um comportamento observável (rodar um comando, publicar o evento de exemplo, chamar um endpoint), a validação **executa** o comportamento, e não só lê o código.
+- **Registro:** a tabela item do enunciado → evidência vai no relatório de revisão e, fora de uma change, na descrição do commit. Item que a change não cobre é listado como fora do escopo, com a change prevista para tratá-lo.
+- **Divergência:** se a implementação, a spec ou o design divergirem do enunciado, **pare e pergunte** ao usuário. O enunciado prevalece, salvo decisão explícita do usuário registrada no `design.md`. Uma ambiguidade do enunciado vira decisão explícita e justificada no `design.md`, nunca suposição.
+- **O revisor independente refaz a validação** por conta própria, a partir do enunciado, sem usar a tabela do autor.
+
 ## Revisão por agente independente — MANDATÓRIA
 
 Nenhuma implementação é dada como pronta, nem commitada, sem a revisão de **outro agente**. Autor e revisor são papéis distintos: quem implementou não se autoaprova.
@@ -154,7 +164,7 @@ Nenhuma implementação é dada como pronta, nem commitada, sem a revisão de **
 4. **O que o revisor verifica:**
    - (a) coerência com o plano: cada requisito e cenário da spec está implementado e testado, e não há nada fora do escopo;
    - (b) cada artigo da constituição;
-   - (c) contratos idênticos ao enunciado;
+   - (c) conformidade com o enunciado (Art. 11): contratos idênticos e cada item tocado atendido, validado por conta própria a partir do `.challenge/enunciado.md`, executando o comportamento observável quando o enunciado o descreve;
    - (d) as regras de trabalho;
    - (e) os comentários do Art. 6: todo arquivo alterado tem o cabeçalho, em pt-BR, com uma entrada por trecho (linhas e símbolo que batem com o arquivo, e o porquê real) e um item do enunciado que existe no `.challenge/enunciado.md` e tem relação com o código; sem comentário no corpo (salvo o KDoc de contrato), sem ruído nem o quê.
 5. **Formato dos achados:** cada um traz `arquivo:linha`, a regra violada e uma severidade:

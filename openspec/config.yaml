@@ -16,14 +16,17 @@ context: |
   Event: {"transaction":{"id","type":CREDIT|DEBIT,"amount","currency":"BRL","status":APPROVED|DECLINED,
   "timestamp":<µs>},"account":{"id","owner","created_at":<µs>,"status","balance":{"amount","currency":"BRL"}}}
   (same shape as `make kafka-produce-transactions-events`; amounts have 2 decimals; generator uses random
-  account ids per event; topic must be created explicitly; partition count is our choice).
+  account ids per event; topic must be created explicitly; DECIDED: 6 partitions for the topic and for its DLT
+  `transacoes-financeiras-processadas.DLT`, via `make kafka-topic-create NAME=<topic> PARTITIONS=6`).
   API: `accountId` path param is a UUID. Response fields (exact snake_case): {"id":<account uuid>,
   "owner":<uuid>,"balance":{"amount":Number,"currency":ISO 4217},"updated_at":ISO 8601 string, e.g.
   "2025-07-05T18:04:13.433-03:00"}.
-  Open ambiguities (decide and justify in the change's design.md, never assume): whether DECLINED events update
-  the snapshot; HTTP status for unknown account and for non-UUID accountId.
-  Decided ambiguities (add-balance-repository): `updated_at` = transaction.timestamp of the event that produced
-  the snapshot; "most recent" is defined only by domain `SnapshotVersion` (greater timestamp, tie broken by the
+  Open ambiguities (decide and justify in the change's design.md, never assume): HTTP status for unknown account
+  and for non-UUID accountId.
+  Decided ambiguities (add-balance-repository, add-transaction-ingestion): every event, APPROVED or DECLINED,
+  updates the snapshot by the same version rule (the event carries the computed balance and the service does not
+  interpret it; for DECLINED only updated_at advances); `updated_at` = transaction.timestamp of the event that
+  produced the snapshot; "most recent" is defined only by domain `SnapshotVersion` (greater timestamp, tie broken by the
   greater transaction id as lowercase text, not UUID.compareTo); the DynamoDB adapter applies it as a
   ConditionExpression.
   NFRs: mission-critical, 24/7, high volume. Must stay correct under: duplicates (idempotent); out-of-order
@@ -75,7 +78,11 @@ context: |
   DESIGN PATTERNS (check whether a recognized pattern fits before designing, never force one, KISS/YAGNI win);
   DON'T REINVENT THE WHEEL (Kotlin/JDK stdlib, then Spring incl. its ecosystem projects, then AWS SDK, then a
   well-known maintained Kotlin/Spring library, before custom code; custom code is for domain rules or when no
-  adequate alternative exists; Art. 1 still wins over any library). Arts. 8-10 also apply to change artifacts
+  adequate alternative exists; Art. 1 still wins over any library). CONFORMANCE WITH THE CHALLENGE STATEMENT
+  (Art. 11): every implementation is validated against .challenge/enunciado.md, item by item, with evidence (test,
+  file or command actually run), before it is considered done; if implementation, spec or design diverge from the
+  statement, stop and ask, and the statement wins unless the user explicitly decides otherwise in design.md; the
+  independent reviewer redoes the validation on its own. Arts. 8-10 also apply to change artifacts
   and build dependencies. design.md records the pattern (or why none fits), the rejected library alternative,
   each codebase-pattern divergence and, for a new dependency, version, last release date and cost vs building it
   (a new dependency must be actively maintained, mature and widely adopted); the project context records only
@@ -93,7 +100,8 @@ context: |
   Jackson 3 (tools.jackson — never com.fasterxml), AWS SDK v2 DynamoDB, with apache5-client declared for the
   connection/socket timeouts (DynamoDB Local :8000),
   kotlinx-coroutines-core as a test-only dependency (Boot BOM version, 1.10.2) to fire truly parallel concurrent
-  writes in the integration test,
+  writes in the integration test, Resilience4j resilience4j-circuitbreaker 2.4.0 pinned (the Boot BOM does not
+  manage it and Spring has no circuit breaker; retry/backoff/jitter/DLT come from Spring Kafka),
   Kafka via Redpanda (localhost:19092, topic auto-creation DISABLED), Docker Compose.
   Architecture: hexagonal per bounded context under br.com.itau.challenge.<ctx>/
   {domain/{model,exception}, port/{input,output}, application, adapter/{input/{web,kafka},output/dynamodb}}.
@@ -105,7 +113,14 @@ context: |
   Conventions: code in English (identifiers, exception messages, test names), comments and docs in Portuguese;
   constructor injection; config via ${ENV:default} in application.yaml + docker-compose env; single config value
   via constructor @Value, a group that would exceed 3 params via an immutable @ConfigurationProperties data
-  class; pinned Docker image versions.
+  class; pinned Docker image versions. The circuit breaker is a Decorator of BalanceRepository in
+  adapter/output/resilience, exposed as @Primary. Each listener has its own container factory, group and commit
+  mode: global listener properties (e.g. spring.kafka.listener.ack-mode) would affect the kit's hello consumer,
+  and the error handler must not be a bean because Boot would apply it to every container. Env vars:
+  TRANSACTIONS_TOPIC, TRANSACTIONS_DLT_TOPIC, TRANSACTIONS_CONSUMER_GROUP_ID, INGESTION_CONCURRENCY (1),
+  INGESTION_MAX_RETRIES (3), INGESTION_BACKOFF_{INITIAL 200ms,MULTIPLIER 2.0,MAX 2s,JITTER 100ms},
+  INGESTION_PAUSE_DURATION (30s), BALANCE_CB_{FAILURE_RATE_THRESHOLD 50,SLIDING_WINDOW_SIZE 10,
+  WAIT_DURATION_OPEN 30s,HALF_OPEN_CALLS 3}.
   DynamoDB tables (created idempotently by infra/dynamodb/seed.sh): GreetingMessages (GREETING_TABLE_NAME) and
   AccountBalances (BALANCE_TABLE_NAME). The kit's DynamoDbClient (DynamoDbConfig + DynamoDbProperties) is the
   only client and must be reused; explicit timeouts/retries via DYNAMODB_CONNECTION_TIMEOUT (500ms),
@@ -122,10 +137,10 @@ context: |
   body and footer in PORTUGUESE, imperative, lowercase, no period, header <= 72 chars); one commit per OpenSpec
   change, containing code, tests, specs and the context updates it motivated.
   Makefile: up/run/stop/logs/build/http; db-up/db-seed/db-scan/db-down; kafka-up/kafka-seed/
-  kafka-topic-create NAME=/kafka-produce-{accounts,transactions}-events TOPIC= COUNT=/kafka-consume TOPIC=/kafka-down;
+  kafka-topic-create NAME=/kafka-topics-ingestion (idempotent, 6 partitions)/kafka-produce-{accounts,transactions}-events TOPIC= COUNT=/kafka-consume TOPIC=/kafka-down;
   test (check inside docker build); integration-test (host JDK); clean-containers; clean.
-  Template gaps the challenge must address: no @RestControllerAdvice (domain exceptions -> 500), no Kafka
-  DLT/error handler, app in compose does not wait for seeds, example adapter uses Scan per request.
+  Template gaps the challenge must address: no @RestControllerAdvice (domain exceptions -> 500), app in compose
+  does not wait for seeds, example adapter uses Scan per request.
 
 # Project context (optional)
 # This is shown to AI when creating artifacts.

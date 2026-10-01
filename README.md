@@ -205,6 +205,25 @@ Novos templates de saudação entram pelo Kafka, não por HTTP: `GreetingTemplat
 - Via `make kafka-seed`: roda novamente o job de seed, republicando as mensagens de [`infra/redpanda/greeting-templates-seed.jsonl`](infra/redpanda/greeting-templates-seed.jsonl) no tópico.
 - Exemplos prontos em [`infra/redpanda/greeting-templates-seed.jsonl`](infra/redpanda/greeting-templates-seed.jsonl) — os mesmos usados no seed inicial.
 
+### Tópico `transacoes-financeiras-processadas` (entrada)
+
+`TransactionEventListener` consome as transações processadas pelo autorizador e chama `ProcessTransactionUseCase`, que grava o snapshot de saldo mais recente de cada conta. O payload é o do enunciado (`.challenge/enunciado.md`).
+
+**Criação dos tópicos** (a criação automática está desligada; o tópico e a DLT têm 6 partições, justificadas no `design.md` da change `add-transaction-ingestion`):
+```bash
+make kafka-topic-create NAME=transacoes-financeiras-processadas PARTITIONS=6
+make kafka-topic-create NAME=transacoes-financeiras-processadas.DLT PARTITIONS=6
+```
+
+**Como o consumer se comporta:**
+- **At-least-once:** o offset só é confirmado depois da gravação. Um evento reentregue resulta em `StaleIgnored`, sem alterar o snapshot.
+- **Erro permanente** (JSON inválido, campo inválido, falha permanente do armazenamento): vai para a DLT `transacoes-financeiras-processadas.DLT`, com os headers do motivo (`kafka_dlt-exception-cause-fqcn`, `kafka_dlt-exception-message`, tópico, partição e offset de origem), e o offset é confirmado.
+- **Erro transitório:** nova tentativa com backoff exponencial e jitter, até `INGESTION_MAX_RETRIES` vezes. Nunca vai para a DLT.
+- **Armazenamento indisponível** (circuito aberto ou tentativas esgotadas): o consumer pausa as partições por `INGESTION_PAUSE_DURATION`, sem perder nem confirmar o registro, e retoma de onde parou; o primeiro registro reentregue é a sonda do circuito.
+- **Reprocessar a DLT:** republique o payload no tópico de origem; é seguro porque a gravação é idempotente. Não há reprocessamento automático.
+
+**Como gerar eventos de teste:** `make kafka-produce-transactions-events TOPIC=transacoes-financeiras-processadas COUNT=50`.
+
 ## Imagens Docker utilizadas
 
 | Serviço | Imagem | Finalidade |
@@ -233,6 +252,20 @@ Todas têm valor padrão para desenvolvimento local (fora do Docker Compose) e s
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | broker Kafka/Redpanda |
 | `KAFKA_CONSUMER_GROUP_ID` | `hello-greeting-template-consumer` | group id do consumer |
 | `GREETING_TEMPLATES_TOPIC` | `greeting-templates` | tópico consumido |
+| `TRANSACTIONS_TOPIC` | `transacoes-financeiras-processadas` | tópico de transações consumido |
+| `TRANSACTIONS_DLT_TOPIC` | `transacoes-financeiras-processadas.DLT` | tópico de erros permanentes |
+| `TRANSACTIONS_CONSUMER_GROUP_ID` | `balance-transaction-ingestion` | group id do consumer de transações |
+| `INGESTION_CONCURRENCY` | `1` | threads do consumer por instância |
+| `INGESTION_MAX_RETRIES` | `3` | novas tentativas de um erro transitório, além da primeira |
+| `INGESTION_BACKOFF_INITIAL` | `200ms` | primeiro intervalo do backoff |
+| `INGESTION_BACKOFF_MULTIPLIER` | `2.0` | multiplicador do backoff |
+| `INGESTION_BACKOFF_MAX` | `2s` | intervalo máximo do backoff |
+| `INGESTION_BACKOFF_JITTER` | `100ms` | jitter aplicado a cada intervalo |
+| `INGESTION_PAUSE_DURATION` | `30s` | pausa das partições com o armazenamento indisponível |
+| `BALANCE_CB_FAILURE_RATE_THRESHOLD` | `50` | % de falhas que abre o circuit breaker |
+| `BALANCE_CB_SLIDING_WINDOW_SIZE` | `10` | chamadas da janela do circuit breaker |
+| `BALANCE_CB_WAIT_DURATION_OPEN` | `30s` | espera antes de sondar o armazenamento |
+| `BALANCE_CB_HALF_OPEN_CALLS` | `3` | chamadas de teste no estado semiaberto |
 
 ## Como rodar
 
@@ -305,6 +338,7 @@ Execute `make help` a qualquer momento para ver esta lista no terminal.
 | `make kafka-up` | sobe o Redpanda + console web e popula o tópico `greeting-templates` |
 | `make kafka-seed` | roda novamente o job de seed (cria o tópico se não existir; mensagens são republicadas — tópicos Kafka são *append-only*, então o total de mensagens cresce a cada execução) |
 | `make kafka-topic-create NAME=meu-topico [PARTITIONS=3]` | cria um novo tópico no Redpanda com o nome e o número de partições informados (`PARTITIONS` é opcional, padrão `1`) |
+| `make kafka-topics-ingestion` | cria, se ainda não existirem, o tópico `transacoes-financeiras-processadas` e a DLT, com 6 partições cada, usando `make kafka-topic-create`; o `make integration-test` já o executa |
 | `make kafka-produce-accounts-events TOPIC=meu-topico [COUNT=50]` | produz eventos de teste no formato `{"account": {...}}` (id/owner UUID aleatórios, `created_at` aleatório nos últimos 10 minutos, `status` ENABLED/DISABLED aleatório) para o tópico informado (`COUNT` é opcional, padrão `100`) |
 | `make kafka-produce-transactions-events TOPIC=meu-topico [COUNT=50]` | produz eventos de teste no formato `{"transaction": {...}, "account": {...}}` (id's UUID aleatórios, `type` CREDIT/DEBIT, `amount` aleatório de 0.01 a 10000, `status` APPROVED/DECLINED, `timestamp` aleatório nos últimos 10 minutos; `account.created_at` aleatório nos últimos 10 anos, `account.status` sempre ENABLED, `balance.amount` aleatório de 0.00 a 20000) para o tópico informado (`COUNT` é opcional, padrão `100`) |
 | `make kafka-consume TOPIC=meu-topico` | imprime todas as mensagens atualmente no tópico informado (usa timeout de 5s, já que `rpk topic consume` não tem um modo "ler o que existe e sair") |
