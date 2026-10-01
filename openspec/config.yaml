@@ -92,6 +92,8 @@ context: |
   Stack: Kotlin 2.3.21, Java 21, Spring Boot 4.1 (WebMVC + Spring Kafka), Gradle 9.5 Kotlin DSL,
   Jackson 3 (tools.jackson — never com.fasterxml), AWS SDK v2 DynamoDB, with apache5-client declared for the
   connection/socket timeouts (DynamoDB Local :8000),
+  kotlinx-coroutines-core as a test-only dependency (Boot BOM version, 1.10.2) to fire truly parallel concurrent
+  writes in the integration test,
   Kafka via Redpanda (localhost:19092, topic auto-creation DISABLED), Docker Compose.
   Architecture: hexagonal per bounded context under br.com.itau.challenge.<ctx>/
   {domain/{model,exception}, port/{input,output}, application, adapter/{input/{web,kafka},output/dynamodb}}.

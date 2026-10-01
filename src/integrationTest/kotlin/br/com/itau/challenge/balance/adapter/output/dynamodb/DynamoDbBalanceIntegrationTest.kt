@@ -1,12 +1,16 @@
 /*
- * L50 TIED_WRITES_EVERY: grupos de gravações dividem o mesmo timestamp, para o desempate pelo id da transação
+ * L57 TIED_WRITES_EVERY: grupos de gravações dividem o mesmo timestamp, para o desempate pelo id da transação
  *     também ser exercitado sob concorrência.
- * L52-L53 LOW_TEXT_ID e HIGH_TEXT_ID: UUIDs cuja ordem como long com sinal (`UUID.compareTo`) diverge da ordem
+ * L59-L60 LOW_TEXT_ID e HIGH_TEXT_ID: UUIDs cuja ordem como long com sinal (`UUID.compareTo`) diverge da ordem
  *     textual, que é a que o DynamoDB aplica.
- * L55 DynamoDbBalanceIntegrationTest: exercita o adapter de saldo contra uma instância real do DynamoDB Local, com
+ * L62 DynamoDbBalanceIntegrationTest: exercita o adapter de saldo contra uma instância real do DynamoDB Local, com
  *     a tabela `AccountBalances` criada pelo seed (rode com `make integration-test`). Mocks não mostram que a
  *     condição casa com a ordem do domínio nem que ela vale sob gravações concorrentes; a matriz de pares (gravado,
  *     recebido) confere o DynamoDB contra `SnapshotVersion`, caso a caso.
+ * L187-L204 `should end with the greatest version when snapshots of the same account are written concurrently`: as
+ *     escritas são disparadas ao mesmo tempo por coroutines em `Dispatchers.IO`, liberadas por um portão
+ *     (`CompletableDeferred`), para a corrida ser real: um `runBlocking` sozinho usaria uma thread e serializaria
+ *     as chamadas bloqueantes do SDK.
  *
  * Spec: Gravação condicional do snapshot; Leitura do snapshot por conta
  * Enunciado: O que será avaliado → Tratamento de concorrência
@@ -23,6 +27,11 @@ import br.com.itau.challenge.balance.domain.model.SnapshotVersion
 import br.com.itau.challenge.balance.domain.model.TransactionId
 import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbConfig
 import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbProperties
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -38,8 +47,6 @@ import java.math.BigDecimal
 import java.net.URI
 import java.time.Duration
 import java.util.UUID
-import java.util.concurrent.Callable
-import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
@@ -180,8 +187,17 @@ class DynamoDbBalanceIntegrationTest {
     fun `should end with the greatest version when snapshots of the same account are written concurrently`() {
         val snapshots = (1..CONCURRENT_WRITES).map { index -> snapshotAt(STORED_MICROS + index / TIED_WRITES_EVERY, UUID.randomUUID()) }
 
-        Executors.newFixedThreadPool(CONCURRENT_WRITES).use { executor ->
-            executor.invokeAll(snapshots.shuffled().map { snapshot -> Callable { writer.saveIfNewer(snapshot) } }).forEach { it.get() }
+        runBlocking(Dispatchers.IO) {
+            val startSignal = CompletableDeferred<Unit>()
+            val writes =
+                snapshots.shuffled().map { snapshot ->
+                    async {
+                        startSignal.await()
+                        writer.saveIfNewer(snapshot)
+                    }
+                }
+            startSignal.complete(Unit)
+            writes.awaitAll()
         }
 
         assertEquals(snapshots.maxBy { it.version }, provider.findByAccountId(accountId))

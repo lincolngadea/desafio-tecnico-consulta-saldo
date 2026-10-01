@@ -28,7 +28,7 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 | JSON | Jackson 3 (`tools.jackson`, `jackson-module-kotlin`). **Não** usar `com.fasterxml.jackson.databind` |
 | Persistência | Amazon DynamoDB via AWS SDK for Java v2 (`software.amazon.awssdk:dynamodb`, BOM 2.46.7, com `apache5-client` declarado para os timeouts de conexão e de socket) — **DynamoDB Local** (`amazon/dynamodb-local:3.3.0`, in-memory) |
 | Mensageria | Protocolo Kafka via Spring Kafka; broker local = **Redpanda** `v26.1.14` (single-node, KRaft) |
-| Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3 |
+| Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3, `kotlinx-coroutines-core` (só teste, versão do BOM do Boot, 1.10.2) para disparar gravações concorrentes em paralelo de verdade no teste de integração |
 | Cobertura | JaCoCo 0.8.12, gate mínimo de **90% de instruções** em `./gradlew check` |
 | Containers | Docker multi-stage + Docker Compose |
 | CI | GitHub Actions: Build, Test & Coverage (unit + integração), Docker, CodeQL |
