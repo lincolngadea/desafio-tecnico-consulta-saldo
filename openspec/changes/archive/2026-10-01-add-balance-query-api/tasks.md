@@ -45,9 +45,9 @@
 
 ## 7. Integração ponta a ponta
 
-- [ ] 7.1 Teste de integração vermelho (`BalanceQueryEndToEndIntegrationTest`, `@SpringBootTest(webEnvironment = RANDOM_PORT)`, Redpanda e DynamoDB Local reais, cliente HTTP real): publica evento e consulta, com os cenários "Conta existente devolve os cinco campos do contrato", "Conta sem snapshot", "Texto que não é UUID", evento fora de ordem preservando o mais novo e evento `DECLINED` avançando só `updated_at`
-- [ ] 7.2 Teste de integração vermelho (`BalanceQueryDependencyUnavailableIntegrationTest`, endpoint do DynamoDB apontado para uma porta fechada): "Falha transitória do armazenamento" dentro do orçamento da leitura e, depois da janela do circuito, "Circuito aberto" com falha rápida e `Retry-After`; isolar de qualquer consumo de eventos
-- [ ] 7.3 Fazer 7.1 e 7.2 ficarem verdes sem alterar o código de produção, salvo defeito que eles revelem
+- [x] 7.1 Teste de integração vermelho (`BalanceQueryEndToEndIntegrationTest`, `@SpringBootTest(webEnvironment = RANDOM_PORT)`, Redpanda e DynamoDB Local reais, cliente HTTP real): publica evento e consulta, com os cenários "Conta existente devolve os cinco campos do contrato", "Conta sem snapshot", "Texto que não é UUID", evento fora de ordem preservando o mais novo e evento `DECLINED` avançando só `updated_at`
+- [x] 7.2 Teste de integração vermelho (`BalanceQueryDependencyUnavailableIntegrationTest`, endpoint do DynamoDB apontado para uma porta fechada): "Falha transitória do armazenamento" dentro do orçamento da leitura e, depois da janela do circuito, "Circuito aberto" com falha rápida e `Retry-After`; isolar de qualquer consumo de eventos
+- [x] 7.3 Fazer 7.1 e 7.2 ficarem verdes sem alterar o código de produção, salvo defeito que eles revelem
 
 ## 8. Documentação operacional
 
@@ -55,13 +55,19 @@
 
 ## 9. Verificação
 
-- [ ] 9.1 `./gradlew check` verde (gate de cobertura ≥ 90%) e `make integration-test` verde
+- [x] 9.1 `./gradlew check` verde (gate de cobertura ≥ 90%) e `make integration-test` verde
 - [x] 9.2 Cabeçalho de comentário (Art. 6) em todo arquivo novo ou alterado: uma entrada por trecho (linhas, símbolo e porquê), `Spec:` nos testes e `Enunciado:` na última linha, em pt-BR, sem comentário no corpo; atualizar os cabeçalhos dos arquivos alterados (`DynamoDbConfig`, `DynamoDbProperties`, `DynamoDbBalanceProvider`, `BalanceCircuitBreakerConfig`, `DynamoDbBalanceProviderTimeoutTest` e os demais)
 - [x] 9.3 Confirmar que o `HexagonalArchitectureTest` cobre os pacotes novos e que nenhum tipo de Spring, Jackson, SDK ou Resilience4j atravessa um port
-- [ ] 9.4 Validar a implementação contra o `.challenge/enunciado.md` (Art. 11): percorrer *Exposição (API REST)* (rota plural, parâmetro, os cinco campos e seus tipos, `updated_at`), *Pense além do happy path* (duplicata, dado inválido, dependência fora do ar) e *O que será avaliado* (resiliência, testes, cenários adversos, production readiness); com `make up` e `make kafka-produce-transactions-events TOPIC=transacoes-financeiras-processadas COUNT=50` rodando, executar `curl` com um `account.id` lido do tópico (`200`), com um UUID desconhecido (`404`), com `abc` (`400`) e com o DynamoDB parado (`503` com `Retry-After`), e abrir a Swagger UI; registrar a tabela item do enunciado → evidência para o relatório de revisão e parar para perguntar se algo divergir
+- [x] 9.4 Validar a implementação contra o `.challenge/enunciado.md` (Art. 11): percorrer *Exposição (API REST)* (rota plural, parâmetro, os cinco campos e seus tipos, `updated_at`), *Pense além do happy path* (duplicata, dado inválido, dependência fora do ar) e *O que será avaliado* (resiliência, testes, cenários adversos, production readiness); com `make up` e `make kafka-produce-transactions-events TOPIC=transacoes-financeiras-processadas COUNT=50` rodando, executar `curl` com um `account.id` lido do tópico (`200`), com um UUID desconhecido (`404`), com `abc` (`400`) e com o DynamoDB parado (`503` com `Retry-After`), e abrir a Swagger UI; registrar a tabela item do enunciado → evidência para o relatório de revisão e parar para perguntar se algo divergir
 
 ## 10. Revisão e contexto
 
 - [x] 10.1 Independent agent review: seguir o procedimento do `CLAUDE.md` (subagente com contexto limpo via Agent, nunca fork; somente leitura; entrega de proposal, design, specs, tasks, diff, `CLAUDE.md` e `.challenge/enunciado.md`; achados bloqueante/ajuste/sugestão com `arquivo:linha`; no máximo 3 rodadas) e registrar rodadas, correções e rejeições para o usuário
-- [ ] 10.2 Apresentar ao usuário os comentários novos e alterados (`arquivo:linha` e texto) e só commitar depois do aval
+- [x] 10.2 Apresentar ao usuário os comentários novos e alterados (`arquivo:linha` e texto) e só commitar depois do aval
 - [x] 10.3 Atualizar `openspec/project.md` e `context:` do `config.yaml` (Regra 3 do `CLAUDE.md`), na mesma tarefa: dependência springdoc e o motivo; variáveis de ambiente novas; a regra do cliente DynamoDB único reescrita para "um por perfil de acesso" e o segundo cliente; o circuit breaker de leitura e a renomeação; as decisões do enunciado (`404`, `400`, formato de `updated_at`, origem do `traceId`); a decisão de não ter cache; a lacuna do `@RestControllerAdvice` resolvida e a ambiguidade de status removida da lista de abertas; validar o YAML com `openspec list --json`
+
+## Evidências da retomada (2026-10-01)
+
+As tarefas 7.1–7.3 já tinham implementação no commit `0d8de91`, atualizada e verificada por `add-observability`. Os cinco cenários de `BalanceQueryEndToEndIntegrationTest` e os dois de `BalanceQueryDependencyUnavailableIntegrationTest` passaram contra Redpanda e DynamoDB Local reais; nenhuma mudança de produção foi necessária nesta retomada. `./gradlew check` e `make integration-test COMPOSE=.local/compose.sh` confirmaram os resultados em cache do Gradle para código inalterado: 309 testes no workspace, 61 de integração, cobertura de instruções 95,2%.
+
+Os comentários atuais foram apresentados por meio de `comment-review.md` (arquivo, linha e texto completo). Não houve alteração de código nesta retomada. Em 2026-10-01, o usuário autorizou marcar a conferência da Swagger como OK e realizar o commit seguido do arquivamento. A tarefa 9.4 foi concluída por essa confirmação, somada às verificações reais do contrato, do HTML e do OpenAPI via HTTP; os resultados e a tabela de conformidade estão em `review.md`. Progresso final: 34/34 tarefas.
