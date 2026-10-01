@@ -1,3 +1,15 @@
+/*
+ * L45-L49 dependencies: Actuator, Prometheus e tracing usam o BOM do Boot; a ponte de métricas do circuito tem
+ *     versão explícita porque não é gerenciada, sem exportador de traces (add-observability design D11).
+ * L51-L52 dependencies: os módulos de teste habilitam métricas e tracing reais nos testes de observabilidade.
+ * L96 localAwsCredentials: o DynamoDB Local aceita qualquer par não vazio; credenciais de teste ficam no ambiente
+ *     para exercitar a cadeia padrão do SDK, sem credenciais no código de produção (add-observability design D9).
+ * L98-L100 tasks.bootRun: o desenvolvimento local usa a mesma cadeia de credenciais da imagem.
+ * L102-L144 tasks.withType<Test>: os dois source sets recebem as credenciais locais, sem depender do perfil AWS
+ *     pessoal de quem executa os testes.
+ *
+ * Enunciado: O que será avaliado → Production readiness
+ */
 plugins {
 	kotlin("jvm") version "2.3.21"
 	kotlin("plugin.spring") version "2.3.21"
@@ -30,7 +42,14 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-kafka")
 	implementation("io.github.resilience4j:resilience4j-circuitbreaker:2.4.0")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1")
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	implementation("io.micrometer:micrometer-registry-prometheus")
+	implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
+	implementation("io.micrometer:micrometer-tracing-bridge-otel")
+	implementation("io.github.resilience4j:resilience4j-micrometer:2.4.0")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+	testImplementation("org.springframework.boot:spring-boot-starter-micrometer-metrics-test")
+	testImplementation("org.springframework.boot:spring-boot-micrometer-tracing-test")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 	testImplementation("com.lemonappdev:konsist:0.17.3")
 	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
@@ -43,8 +62,6 @@ kotlin {
 	}
 }
 
-// Integration tests require live infrastructure (e.g. `make db-up`) and are intentionally
-// kept out of `test`/`check` so the default build stays infra-free and gate-friendly.
 sourceSets {
 	create("integrationTest") {
 		kotlin.srcDir("src/integrationTest/kotlin")
@@ -76,7 +93,14 @@ jacoco {
 	toolVersion = "0.8.12"
 }
 
+val localAwsCredentials = mapOf("AWS_ACCESS_KEY_ID" to "local", "AWS_SECRET_ACCESS_KEY" to "local")
+
+tasks.bootRun {
+	environment(localAwsCredentials)
+}
+
 tasks.withType<Test> {
+	environment(localAwsCredentials)
 	useJUnitPlatform()
 	finalizedBy(tasks.jacocoTestReport)
 
@@ -121,7 +145,6 @@ tasks.withType<Test> {
 
 val jacocoCoverageExclusions =
 	listOf(
-		// Framework bootstrap: `main` is never invoked by tests, only Spring's test context machinery.
 		"br/com/itau/challenge/ApplicationKt.class",
 		"br/com/itau/challenge/Application.class",
 	)

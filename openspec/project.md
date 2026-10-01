@@ -30,7 +30,9 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 | Mensageria | Protocolo Kafka via Spring Kafka; broker local = **Redpanda** `v26.1.14` (single-node, KRaft) |
 | Resiliência | Retry com backoff exponencial e jitter, error handler e DLT pelo Spring Kafka (`ExponentialBackOff`, `DefaultErrorHandler`); circuit breaker com `resilience4j-circuitbreaker` 2.4.0, de versão fixa porque o BOM do Boot não a gerencia e o Spring não tem circuit breaker |
 | Documentação de API | `springdoc-openapi-starter-webmvc-ui` 3.1.1: gera o OpenAPI (`/v3/api-docs`) e a Swagger UI (`/swagger-ui.html`) a partir das anotações dos controllers e dos DTOs, sem arquivo escrito à mão; versão fixa porque o BOM do Boot não a gerencia |
+| Observabilidade | Spring Boot Actuator e Micrometer com `micrometer-registry-prometheus`, Micrometer Tracing com a ponte OpenTelemetry **sem exportador**, e `resilience4j-micrometer` 2.4.0 (versão fixa: fora do BOM); log JSON nativo do Boot (formato `logstash`), sem biblioteca de log |
 | Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3, `kotlinx-coroutines-core` (só teste, versão do BOM do Boot, 1.10.2) para disparar gravações concorrentes em paralelo de verdade no teste de integração |
+| Testes de observabilidade | `spring-boot-starter-micrometer-metrics-test` e `spring-boot-micrometer-tracing-test` (as anotações `@AutoConfigureMetrics` e `@AutoConfigureTracing`) |
 | Cobertura | JaCoCo 0.8.12, gate mínimo de **90% de instruções** em `./gradlew check` |
 | Containers | Docker multi-stage + Docker Compose |
 | CI | GitHub Actions: Build, Test & Coverage (unit + integração), Docker, CodeQL |
@@ -69,8 +71,11 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 | `dynamodb.read.timeouts.{connection,socket,api-call-attempt,api-call}` | `DYNAMODB_READ_{CONNECTION,SOCKET,API_CALL_ATTEMPT,API_CALL}_TIMEOUT` | `200ms`, `300ms`, `300ms`, `800ms` |
 | `dynamodb.read.retry.max-attempts` | `DYNAMODB_READ_MAX_ATTEMPTS` | `2` (o máximo aceito: 1 retry) |
 | `balance.api.retry-after` | `BALANCE_API_RETRY_AFTER` | `5s` |
+| `management.server.port` | `MANAGEMENT_PORT` | `8082` (probes e métricas, separada da API) |
+| `logging.structured.format.console` | `LOG_FORMAT` | `logstash` (JSON) |
+| (SDK AWS) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | obrigatórias; `local` nas tarefas `test`, `integrationTest` e `bootRun` do Gradle |
 
-Há um `DynamoDbClient` por perfil de acesso, ambos em `DynamoDbConfig` (+ `DynamoDbProperties`), com timeouts e tentativas explícitos: o `dynamoDbClient` (`@Primary`, escrita e `hello`) e o `readDynamoDbClient` (leitura de saldo, com orçamento curto e no máximo 1 retry). Contextos novos reutilizam um deles, sem criar outro cliente. O perfil de leitura falha na subida se `maxAttempts` passar de 2 ou se `maxAttempts × api-call-attempt > api-call`.
+As credenciais AWS não ficam no código: o cliente usa a cadeia padrão do SDK. Há um `DynamoDbClient` por perfil de acesso, ambos em `DynamoDbConfig` (+ `DynamoDbProperties`), com timeouts e tentativas explícitos: o `dynamoDbClient` (`@Primary`, escrita e `hello`) e o `readDynamoDbClient` (leitura de saldo, com orçamento curto e no máximo 1 retry). Contextos novos reutilizam um deles, sem criar outro cliente. O perfil de leitura falha na subida se `maxAttempts` passar de 2 ou se `maxAttempts × api-call-attempt > api-call`.
 
 ## Project Conventions
 
@@ -188,6 +193,14 @@ Gates e regras:
 - Relatório HTML: `build/reports/jacoco/test/html/index.html`.
 - Toda funcionalidade nova nasce de teste (TDD, ver *Working Rules*) e mantém o gate. Fluxos principais **e** corner cases (duplicata, fora de ordem, conta inexistente, dado inválido, dependência indisponível) precisam de teste. Adapters que tocam infra real devem ganhar teste de integração.
 
+### Observabilidade
+
+- **Logs:** JSON de uma linha no console, com `traceId` em todo log durante uma requisição HTTP ou um registro Kafka. O `traceId` vem do `traceparent` (W3C) do HTTP ou do header do registro, ou é gerado; a DLT preserva o header. A propagação é do Micrometer Tracing, e a observação do Kafka fica só no container de transações, com o `ObservationRegistry` explícito (sem ele a observação é um no-op silencioso).
+- **Dados sensíveis:** `owner` e payload nunca vão para log, nem nas mensagens de exceção; o `accountId` sai só com o primeiro grupo do UUID. Isso vale por construção, no `toString` de `OwnerId` e `AccountId`. Evento duplicado ou antigo é logado em `DEBUG`.
+- **Métricas** (Prometheus em `/actuator/prometheus`, só `health` e `prometheus` expostos, na porta de gerenciamento): `balance.transactions.processed{result=applied|stale_ignored|duplicate|dlq}`, o timer `spring.kafka.listener`, `kafka.consumer.fetch.manager.records.lag.max`, `resilience4j.circuitbreaker.*` dos circuitos `balance-storage` e `balance-storage-read`, e `http.server.requests`. Nenhuma tag leva identificador de conta, titular ou transação. O lag pode ficar defasado com as partições pausadas.
+- **Probes:** o `liveness` depende só do processo; o `readiness` só do estado da aplicação (recusa tráfego ao começar o encerramento) e **não** depende do DynamoDB nem do Kafka: as instâncias dividem a dependência, e verificá-la as tiraria todas do balanceador juntas.
+- **Testes:** no Boot 4 a instrumentação de métricas e a de tracing ficam desligadas nos testes sem `@AutoConfigureMetrics` e `@AutoConfigureTracing`. Os testes MockMvc do Actuator usam `management.server.port=` (vazio, mesma porta da API), e os testes com servidor de verdade usam `management.server.port=0`.
+
 ### Git Workflow
 
 - Branch principal: **`kotlin`** (a CI também observa `main`).
@@ -275,10 +288,13 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
 - O gerador cria `account.id` aleatório por evento. Para testar a consulta, use um `account.id` lido do tópico (`make kafka-consume`) ou publique eventos próprios.
 - O tópico precisa ser criado explicitamente, porque a auto-criação está desligada no cluster. **Decidido:** 6 partições para `transacoes-financeiras-processadas` e para a DLT `transacoes-financeiras-processadas.DLT`, criadas com `make kafka-topic-create NAME=<tópico> PARTITIONS=6`.
 - **Ambiguidades do enunciado.** Não assuma uma resposta: cada uma deve ser decidida e justificada no `design.md` da change que a tocar.
-- **Ambiguidades já decididas** (changes `add-balance-repository`, `add-transaction-ingestion` e `add-balance-query-api`):
+- **Ambiguidades já decididas** (changes `add-balance-repository`, `add-transaction-ingestion`, `add-balance-query-api` e `add-observability`):
   - Conta sem snapshot responde `404`, `accountId` fora da forma canônica de UUID (36 caracteres) responde `400`, dependência indisponível responde `503` com `Retry-After`, e todo erro é `problem+json` com `traceId`.
   - `updated_at` sai em milissegundos (truncados) e no offset de `America/Sao_Paulo`, com três dígitos fixos de fração.
   - Sem cache de saldo: a leitura é fortemente consistente e toda resposta de `/balances/**` traz `Cache-Control: no-store`.
+  - O mesmo evento (mesma versão) resulta em `DuplicateIgnored` e uma versão armazenada mais nova em `StaleIgnored`; a distinção vem do item que o `PutItem` condicional devolve na recusa (`ReturnValuesOnConditionCheckFailure`), sem leitura extra.
+  - O `traceId` é o único identificador de correlação (não há `correlationId`), no formato W3C `traceparent`.
+  - O `readiness` não depende do DynamoDB nem do Kafka.
   - Todo evento, aprovado ou `DECLINED`, atualiza o snapshot pela mesma regra de versão: o evento traz o saldo calculado e o serviço não o interpreta. Para `DECLINED`, só `updated_at` avança.
   - `updated_at` vem do `transaction.timestamp` do evento que gerou o snapshot.
   - "Mais recente" é definido só por `SnapshotVersion` no domínio: maior `timestamp` e, no empate, maior id da transação na forma textual minúscula (não `UUID.compareTo`). O adapter DynamoDB aplica essa ordem numa `ConditionExpression`.
@@ -314,7 +330,7 @@ A solução será avaliada por (lista do enunciado):
 - Manter a **arquitetura hexagonal** e fazer o teste de arquitetura cobrir os contextos novos.
 - Manter o **gate de cobertura ≥ 90%** (`./gradlew check`), senão o build e a CI quebram.
 - A stack deve subir apenas com Docker (`make up`). Imagens com versões fixas.
-- Não commitar segredos. As credenciais `local/local` e o `endpointOverride` do DynamoDB valem só para o ambiente local.
+- Não commitar segredos. As credenciais AWS vêm do ambiente (cadeia padrão do SDK): o Gradle define `local`/`local`, que valem só para o ambiente local, assim como o `endpointOverride` do DynamoDB.
 - Lacunas do template que o desafio exige tratar (ver *Non-Functional Requirements*):
   - O serviço `app` no compose não espera os seeds terminarem (`depends_on` simples).
   - O exemplo usa `Scan` por request. Para consultas, preferir `GetItem`/`Query` por chave.

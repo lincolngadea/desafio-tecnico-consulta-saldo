@@ -1,16 +1,19 @@
 /*
- * L58 TIED_WRITES_EVERY: grupos de gravações dividem o mesmo timestamp, para o desempate pelo id da transação também
+ * L61 TIED_WRITES_EVERY: grupos de gravações dividem o mesmo timestamp, para o desempate pelo id da transação também
  *     ser exercitado sob concorrência.
- * L60-L61 LOW_TEXT_ID e HIGH_TEXT_ID: UUIDs cuja ordem como long com sinal (`UUID.compareTo`) diverge da ordem
+ * L63-L64 LOW_TEXT_ID e HIGH_TEXT_ID: UUIDs cuja ordem como long com sinal (`UUID.compareTo`) diverge da ordem
  *     textual, que é a que o DynamoDB aplica.
- * L63 DynamoDbBalanceIntegrationTest: exercita o adapter de saldo contra uma instância real do DynamoDB Local, com a
+ * L66 DynamoDbBalanceIntegrationTest: exercita o adapter de saldo contra uma instância real do DynamoDB Local, com a
  *     tabela `AccountBalances` criada pelo seed (rode com `make integration-test`). Mocks não mostram que a condição
  *     casa com a ordem do domínio nem que ela vale sob gravações concorrentes; a matriz de pares (gravado, recebido)
  *     confere o DynamoDB contra `SnapshotVersion`, caso a caso.
- * L188-L205 `should end with the greatest version when snapshots of the same account are written concurrently`: as
+ * L86-L93 `should end with the greatest version when snapshots of the same account are written concurrently`: as
  *     escritas são disparadas ao mesmo tempo por coroutines em `Dispatchers.IO`, liberadas por um portão
  *     (`CompletableDeferred`), para a corrida ser real: um `runBlocking` sozinho usaria uma thread e serializaria as
  *     chamadas bloqueantes do SDK.
+ * L190-L195 expectedResultOf: a matriz de pares confere o DynamoDB contra o domínio nos três resultados: mais novo é
+ *     `Applied`, igual é `DuplicateIgnored` e o resto é `StaleIgnored`; é aqui que se prova que a recusa devolve o
+ *     item (add-observability design D6).
  *
  * Spec: Gravação condicional do snapshot; Leitura do snapshot por conta
  * Enunciado: O que será avaliado → Tratamento de concorrência
@@ -136,7 +139,7 @@ class DynamoDbBalanceIntegrationTest {
 
         val result = writer.saveIfNewer(stored)
 
-        assertEquals(SnapshotSaveResult.StaleIgnored, result)
+        assertEquals(SnapshotSaveResult.DuplicateIgnored, result)
         assertEquals(stored, provider.findByAccountId(accountId))
     }
 
@@ -176,13 +179,20 @@ class DynamoDbBalanceIntegrationTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("versionPairs")
-    fun `should apply the incoming snapshot exactly when the domain orders it after the stored one`(pair: VersionPair) {
+    fun `should classify the result exactly as the domain orders the incoming version against the stored one`(pair: VersionPair) {
         writer.saveIfNewer(snapshotWith(pair.stored))
 
         val result = writer.saveIfNewer(snapshotWith(pair.incoming))
 
-        assertEquals(pair.incoming > pair.stored, result == SnapshotSaveResult.Applied)
+        assertEquals(expectedResultOf(pair), result)
     }
+
+    private fun expectedResultOf(pair: VersionPair): SnapshotSaveResult =
+        when {
+            pair.incoming > pair.stored -> SnapshotSaveResult.Applied
+            pair.incoming == pair.stored -> SnapshotSaveResult.DuplicateIgnored
+            else -> SnapshotSaveResult.StaleIgnored
+        }
 
     @Test
     fun `should end with the greatest version when snapshots of the same account are written concurrently`() {

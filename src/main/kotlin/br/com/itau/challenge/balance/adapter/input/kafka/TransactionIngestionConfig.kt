@@ -1,33 +1,44 @@
 /*
- * L36 TRANSACTION_INGESTION_CONTAINER_FACTORY: nome do container exclusivo do listener de transações, referenciado
+ * L47 TRANSACTION_INGESTION_CONTAINER_FACTORY: nome do container exclusivo do listener de transações, referenciado
  *     pelo `@KafkaListener`.
- * L38 SHUTDOWN_TIMEOUT: fica acima do pior caso de bloqueio de um registro, para o encerramento terminar o registro
+ * L49 SHUTDOWN_TIMEOUT: fica acima do pior caso de bloqueio de um registro, para o encerramento terminar o registro
  *     em andamento (add-transaction-ingestion design D9).
- * L39 PAUSE_SCHEDULER_THREAD_NAME_PREFIX: prefixo que identifica nos logs a thread que retoma o consumer após a
+ * L50 PAUSE_SCHEDULER_THREAD_NAME_PREFIX: prefixo que identifica nos logs a thread que retoma o consumer após a
  *     pausa.
- * L43 TransactionIngestionConfig: reúne a infraestrutura do consumer de transações, separada do consumer do kit
+ * L54 TransactionIngestionConfig: reúne a infraestrutura do consumer de transações, separada do consumer do kit
  *     (add-transaction-ingestion design D8).
- * L46-L47 ingestionResumeScheduler: agenda a retomada da pausa; é encerrado junto com o contexto, o que cancela a
+ * L60-L61 ingestionResumeScheduler: agenda a retomada da pausa; é encerrado junto com o contexto, o que cancela a
  *     retomada pendente.
- * L50-L53 ingestionPauseService: acha o container pelo id no registry e usa o agendador para retomá-lo, em vez de
+ * L64-L67 ingestionPauseService: acha o container pelo id no registry e usa o agendador para retomá-lo, em vez de
  *     código próprio de pausa (Art. 10).
- * L56-L68 transactionIngestionContainerFactory: container próprio deste listener: o commit manual global quebraria o
- *     consumer do kit, que não confirma offset. `enable.auto.commit=false` vai nas propriedades do container, e não
- *     numa cópia do consumer factory, para não descartar o que o Boot registra nele (add-transaction-ingestion design
- *     D8).
+ * L70-L78 ingestionListenerPause: a pausa pelo container vira bean para a fábrica do error handler depender só do
+ *     recoverer, e não de quatro colaboradores (Art. 3).
+ * L81-L85 transactionDeadLetterRecoverer: publica na DLT preservando os headers do registro, inclusive o
+ *     `traceparent`, para o evento descartado continuar correlacionável.
+ * L88-L92 ingestionRecoverer: junta a decisão entre DLT e pausa com a contagem do `dlq` num só bean.
+ * L95-L109 transactionIngestionContainerFactory: container próprio deste listener: o commit manual global quebraria
+ *     o consumer do kit, que não confirma offset. `enable.auto.commit=false` vai nas propriedades do container, e
+ *     não numa cópia do consumer factory, para não descartar o que o Boot registra nele (add-transaction-ingestion
+ *     design D8). A observação e o `ObservationRegistry` ficam só aqui: sem o registry a observação seria um no-op
+ *     silencioso, e a propriedade global ligaria o consumer do kit (add-observability design D2).
  *
  * Enunciado: O que será avaliado → Resiliência
  */
 package br.com.itau.challenge.balance.adapter.input.kafka
 
+import io.micrometer.observation.ObservationRegistry
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.common.TopicPartition
+import org.slf4j.LoggerFactory
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry
 import org.springframework.kafka.core.ConsumerFactory
+import org.springframework.kafka.core.KafkaOperations
 import org.springframework.kafka.listener.ContainerProperties
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer
 import org.springframework.kafka.listener.ListenerContainerPauseService
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler
 import java.time.Duration
@@ -40,7 +51,10 @@ private const val PAUSE_SCHEDULER_THREAD_NAME_PREFIX = "ingestion-resume-"
 
 @Configuration
 @EnableConfigurationProperties(IngestionProperties::class)
-class TransactionIngestionConfig {
+class TransactionIngestionConfig(
+    private val observationRegistry: ObservationRegistry,
+) {
+    private val logger = LoggerFactory.getLogger(TransactionIngestionConfig::class.java)
 
     @Bean
     fun ingestionResumeScheduler(): ThreadPoolTaskScheduler =
@@ -51,6 +65,31 @@ class TransactionIngestionConfig {
         registry: KafkaListenerEndpointRegistry,
         ingestionResumeScheduler: ThreadPoolTaskScheduler,
     ): ListenerContainerPauseService = ListenerContainerPauseService(registry, ingestionResumeScheduler)
+
+    @Bean
+    fun ingestionListenerPause(
+        pauseService: ListenerContainerPauseService,
+        properties: IngestionProperties,
+    ): ListenerPause =
+        ListenerPause {
+            logger.warn("Pausing the transaction listener for {} because the balance storage is unavailable", properties.pauseDuration)
+            pauseService.pause(INGESTION_LISTENER_ID, properties.pauseDuration)
+            properties.pauseDuration
+        }
+
+    @Bean
+    fun transactionDeadLetterRecoverer(
+        kafkaOperations: KafkaOperations<String, String>,
+        properties: IngestionProperties,
+    ): DeadLetterPublishingRecoverer =
+        DeadLetterPublishingRecoverer(kafkaOperations) { record, _ -> TopicPartition(properties.dltTopicName, record.partition()) }
+
+    @Bean
+    fun ingestionRecoverer(
+        transactionDeadLetterRecoverer: DeadLetterPublishingRecoverer,
+        ingestionListenerPause: ListenerPause,
+        outcomeMetrics: TransactionOutcomeMetrics,
+    ): IngestionRecoverer = IngestionRecoverer(transactionDeadLetterRecoverer, ingestionListenerPause, outcomeMetrics)
 
     @Bean(TRANSACTION_INGESTION_CONTAINER_FACTORY)
     fun transactionIngestionContainerFactory(
@@ -63,6 +102,8 @@ class TransactionIngestionConfig {
             setConcurrency(properties.concurrency)
             setCommonErrorHandler(errorHandlerFactory.newErrorHandler())
             containerProperties.ackMode = ContainerProperties.AckMode.MANUAL_IMMEDIATE
+            containerProperties.isObservationEnabled = true
+            containerProperties.observationRegistry = observationRegistry
             containerProperties.setShutdownTimeout(SHUTDOWN_TIMEOUT.toMillis())
             containerProperties.kafkaConsumerProperties = Properties().apply { setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false") }
         }

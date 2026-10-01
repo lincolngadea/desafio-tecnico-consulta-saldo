@@ -1,11 +1,12 @@
 /*
- * L21 IngestionRecoverer: decide o destino de um registro de que o Spring desistiu: dependência fora do ar pausa o
+ * L22 IngestionRecoverer: decide o destino de um registro de que o Spring desistiu: dependência fora do ar pausa o
  *     consumer e mantém o registro; todo o resto vai para a DLT. Assim evento bom nunca vai para a DLT por culpa do
  *     DynamoDB (add-transaction-ingestion design D4).
- * L27-L40 accept: a pausa é pedida antes de lançar `ListenerPausedException`, para o Spring devolver o registro sem
- *     commit; o descarte para a DLT é logado só com o tipo da causa, porque a mensagem pode conter trecho do payload,
- *     e o motivo completo já vai nos headers da DLT.
- * L42-L43 Throwable.isDependencyFailure: percorre a cadeia de causas porque o Spring embrulha a exceção do listener
+ * L29-L43 accept: a pausa é pedida antes de lançar `ListenerPausedException`, para o Spring devolver o registro sem
+ *     commit; o descarte para a DLT é logado só com o tipo da causa, porque a mensagem pode conter trecho do
+ *     payload, e o motivo completo já vai nos headers da DLT. O `dlq` só é contado depois de a DLT aceitar o
+ *     registro, porque sem a publicação o registro não tem desfecho.
+ * L45-L46 Throwable.isDependencyFailure: percorre a cadeia de causas porque o Spring embrulha a exceção do listener
  *     em `ListenerExecutionFailedException`.
  *
  * Enunciado: O que será avaliado → Resiliência
@@ -21,6 +22,7 @@ import org.springframework.kafka.listener.ConsumerRecordRecoverer
 class IngestionRecoverer(
     private val deadLetterRecoverer: ConsumerRecordRecoverer,
     private val listenerPause: ListenerPause,
+    private val outcomeMetrics: TransactionOutcomeMetrics,
 ) : ConsumerRecordRecoverer {
     private val logger = LoggerFactory.getLogger(IngestionRecoverer::class.java)
 
@@ -37,6 +39,7 @@ class IngestionRecoverer(
             rootCause.javaClass.simpleName,
         )
         deadLetterRecoverer.accept(record, failure)
+        outcomeMetrics.recordDeadLettered()
     }
 
     private fun Throwable.isDependencyFailure(): Boolean =

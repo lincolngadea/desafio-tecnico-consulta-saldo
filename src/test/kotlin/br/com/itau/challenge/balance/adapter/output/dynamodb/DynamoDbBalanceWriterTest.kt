@@ -1,7 +1,9 @@
 /*
- * L40 DynamoDbBalanceWriterTest: a requisição condicional é o contrato com o DynamoDB: um cliente simulado permite
+ * L49 DynamoDbBalanceWriterTest: a requisição condicional é o contrato com o DynamoDB: um cliente simulado permite
  *     conferir a `ConditionExpression` e a classificação das falhas sem infraestrutura, enquanto o comportamento
  *     real fica no teste de integração.
+ * L255-L258 refusedBy: faz o cliente simulado recusar a condição devolvendo o item que bloqueou a gravação, como o
+ *     DynamoDB faz com `ReturnValuesOnConditionCheckFailure`.
  *
  * Spec: Gravação condicional do snapshot; Classificação das falhas do DynamoDB
  * Enunciado: O que será avaliado → Tratamento de concorrência
@@ -16,24 +18,31 @@ import org.mockito.ArgumentCaptor
 import org.mockito.BDDMockito.given
 import org.mockito.Mockito.any
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails
 import software.amazon.awssdk.core.exception.ApiCallAttemptTimeoutException
 import software.amazon.awssdk.core.exception.ApiCallTimeoutException
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.InternalServerErrorException
 import software.amazon.awssdk.services.dynamodb.model.ProvisionedThroughputExceededException
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemResponse
 import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException
+import software.amazon.awssdk.services.dynamodb.model.ReturnValuesOnConditionCheckFailure
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 private const val INTERNAL_SERVER_ERROR = 500
+private const val GREATER_TRANSACTION_ID = "ffffffff-b154-48b5-9f3e-553935cc4543"
 private const val SERVICE_UNAVAILABLE = 503
 private const val TIMEOUT_MILLIS = 3000L
 
@@ -84,13 +93,57 @@ class DynamoDbBalanceWriterTest {
     }
 
     @Test
-    fun `should report stale ignored when the stored version is as recent or newer`() {
+    fun `should ask DynamoDB for the blocking item when the condition fails`() {
+        given(client.putItem(any(PutItemRequest::class.java))).willReturn(PutItemResponse.builder().build())
+
+        writer.saveIfNewer(SNAPSHOT)
+
+        assertEquals(ReturnValuesOnConditionCheckFailure.ALL_OLD, capturedPutRequest().returnValuesOnConditionCheckFailure())
+    }
+
+    @Test
+    fun `should report duplicate ignored when the blocking item has the same version`() {
+        refusedBy(SNAPSHOT.toItem())
+
+        assertEquals(SnapshotSaveResult.DuplicateIgnored, writer.saveIfNewer(SNAPSHOT))
+    }
+
+    @Test
+    fun `should report stale ignored when the blocking item has a newer timestamp`() {
+        refusedBy(storedItemWith(timestamp = EVENT_MICROS + 1, transactionId = TRANSACTION_ID))
+
+        assertEquals(SnapshotSaveResult.StaleIgnored, writer.saveIfNewer(SNAPSHOT))
+    }
+
+    @Test
+    fun `should report stale ignored when the timestamps tie and the blocking item has a greater transaction id`() {
+        refusedBy(storedItemWith(timestamp = EVENT_MICROS, transactionId = GREATER_TRANSACTION_ID))
+
+        assertEquals(SnapshotSaveResult.StaleIgnored, writer.saveIfNewer(SNAPSHOT))
+    }
+
+    @Test
+    fun `should report stale ignored when DynamoDB does not return the blocking item`() {
         given(client.putItem(any(PutItemRequest::class.java)))
             .willThrow(ConditionalCheckFailedException.builder().statusCode(BAD_REQUEST).build())
 
-        val result = writer.saveIfNewer(SNAPSHOT)
+        assertEquals(SnapshotSaveResult.StaleIgnored, writer.saveIfNewer(SNAPSHOT))
+    }
 
-        assertEquals(SnapshotSaveResult.StaleIgnored, result)
+    @Test
+    fun `should fail permanently when the blocking item is malformed`() {
+        refusedBy(mapOf("accountId" to stringValue(ACCOUNT_ID)))
+
+        assertFailsWith<PermanentStorageException> { writer.saveIfNewer(SNAPSHOT) }
+    }
+
+    @Test
+    fun `should not read the item again when the condition fails`() {
+        refusedBy(SNAPSHOT.toItem())
+
+        writer.saveIfNewer(SNAPSHOT)
+
+        verify(client, never()).getItem(any(GetItemRequest::class.java))
     }
 
     @Test
@@ -188,4 +241,29 @@ class DynamoDbBalanceWriterTest {
         verify(client).putItem(captor.capture())
         return captor.value
     }
+
+    @Test
+    fun `should mention only the first group of the account id when a failure message is built`() {
+        given(client.putItem(any(PutItemRequest::class.java))).willThrow(connectionRefused())
+
+        val failure = assertFailsWith<TransientStorageException> { writer.saveIfNewer(SNAPSHOT) }
+
+        assertTrue(failure.message.orEmpty().contains(ACCOUNT_ID.substringBefore('-')), failure.message)
+        assertFalse(failure.message.orEmpty().contains(ACCOUNT_ID), failure.message)
+    }
+
+    private fun refusedBy(blockingItem: Map<String, AttributeValue>) {
+        given(client.putItem(any(PutItemRequest::class.java)))
+            .willThrow(ConditionalCheckFailedException.builder().statusCode(BAD_REQUEST).item(blockingItem).build())
+    }
+
+    private fun storedItemWith(
+        timestamp: Long,
+        transactionId: String,
+    ): Map<String, AttributeValue> =
+        SNAPSHOT.toItem() +
+            mapOf(
+                "lastEventTimestamp" to numberValue(timestamp.toString()),
+                "lastTransactionId" to stringValue(transactionId),
+            )
 }

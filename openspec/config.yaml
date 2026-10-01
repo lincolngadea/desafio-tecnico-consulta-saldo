@@ -22,7 +22,7 @@ context: |
   "owner":<uuid>,"balance":{"amount":Number,"currency":ISO 4217},"updated_at":ISO 8601 string, e.g.
   "2025-07-05T18:04:13.433-03:00"}.
   Ambiguities of the statement are never assumed: decide and justify each in the change's design.md.
-  Decided ambiguities (add-balance-repository, add-transaction-ingestion, add-balance-query-api): every event, APPROVED or DECLINED,
+  Decided ambiguities (add-balance-repository, add-transaction-ingestion, add-balance-query-api, add-observability): every event, APPROVED or DECLINED,
   updates the snapshot by the same version rule (the event carries the computed balance and the service does not
   interpret it; for DECLINED only updated_at advances); `updated_at` = transaction.timestamp of the event that
   produced the snapshot; "most recent" is defined only by domain `SnapshotVersion` (greater timestamp, tie broken by the
@@ -30,7 +30,10 @@ context: |
   ConditionExpression; unknown account -> 404, accountId not a canonical 36-char UUID -> 400, unavailable
   dependency -> 503 with Retry-After, every error is problem+json with traceId; updated_at in truncated
   milliseconds at the America/Sao_Paulo offset with three fixed fraction digits; NO balance cache (reads are
-  strongly consistent and every /balances/** response carries Cache-Control: no-store).
+  strongly consistent and every /balances/** response carries Cache-Control: no-store); the same event (same version)
+  is DuplicateIgnored and a newer stored version is StaleIgnored, told apart by the item the conditional PutItem
+  returns on refusal (ReturnValuesOnConditionCheckFailure), with no extra read; traceId is the ONLY correlation id (no
+  correlationId), W3C traceparent; readiness does not depend on DynamoDB nor Kafka.
   NFRs: mission-critical, 24/7, high volume. Must stay correct under: duplicates (idempotent); out-of-order
   events (older never overwrites newer, also with concurrent consumers); invalid data (must not block
   consumption nor corrupt snapshots; isolated and observable; invalid request such as non-UUID accountId gets
@@ -106,6 +109,10 @@ context: |
   manage it and Spring has no circuit breaker; retry/backoff/jitter/DLT come from Spring Kafka),
   springdoc-openapi-starter-webmvc-ui 3.1.1 pinned (the Boot BOM does not manage it; generates the OpenAPI at
   /v3/api-docs and the Swagger UI at /swagger-ui.html from code, no hand-written spec),
+  Observability: Spring Boot Actuator and Micrometer with micrometer-registry-prometheus, Micrometer Tracing with the
+  OpenTelemetry bridge WITHOUT exporter, resilience4j-micrometer 2.4.0 pinned (outside the BOM); native Boot JSON
+  logging (logstash format), no logging library; test deps spring-boot-starter-micrometer-metrics-test and
+  spring-boot-micrometer-tracing-test,
   Kafka via Redpanda (localhost:19092, topic auto-creation DISABLED), Docker Compose.
   Architecture: hexagonal per bounded context under br.com.itau.challenge.<ctx>/
   {domain/{model,exception}, port/{input,output}, application, adapter/{input/{web,kafka},output/dynamodb}}.
@@ -128,7 +135,9 @@ context: |
   INGESTION_MAX_RETRIES (3), INGESTION_BACKOFF_{INITIAL 200ms,MULTIPLIER 2.0,MAX 2s,JITTER 100ms},
   INGESTION_PAUSE_DURATION (30s), BALANCE_CB_{FAILURE_RATE_THRESHOLD 50,SLIDING_WINDOW_SIZE 10,
   WAIT_DURATION_OPEN 30s,HALF_OPEN_CALLS 3}, DYNAMODB_READ_{CONNECTION 200ms,SOCKET 300ms,API_CALL_ATTEMPT 300ms,
-  API_CALL 800ms}_TIMEOUT, DYNAMODB_READ_MAX_ATTEMPTS (2, the maximum accepted: 1 retry), BALANCE_API_RETRY_AFTER (5s).
+  API_CALL 800ms}_TIMEOUT, DYNAMODB_READ_MAX_ATTEMPTS (2, the maximum accepted: 1 retry), BALANCE_API_RETRY_AFTER (5s), MANAGEMENT_PORT (8082,
+  probes and metrics, separate from the API), LOG_FORMAT (logstash), AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (required;
+  `local` in the Gradle test/integrationTest/bootRun tasks; credentials never in code).
   DynamoDB tables (created idempotently by infra/dynamodb/seed.sh): GreetingMessages (GREETING_TABLE_NAME) and
   AccountBalances (BALANCE_TABLE_NAME). There is one DynamoDbClient per access profile, both in DynamoDbConfig
   (+ DynamoDbProperties) and to be reused, never duplicated: dynamoDbClient (@Primary; write and hello) and
@@ -136,6 +145,20 @@ context: |
   maxAttempts x api-call-attempt > api-call); explicit timeouts/retries via DYNAMODB_CONNECTION_TIMEOUT (500ms),
   DYNAMODB_SOCKET_TIMEOUT (1s), DYNAMODB_API_CALL_ATTEMPT_TIMEOUT (1s), DYNAMODB_API_CALL_TIMEOUT (3s),
   DYNAMODB_MAX_ATTEMPTS (3).
+  Observability: JSON logs with traceId (HTTP traceparent or Kafka record header, generated otherwise; the
+  DLT preserves the header; Kafka observation only on the transactions container, with an explicit ObservationRegistry
+  because without it the observation is a silent no-op); owner and payload NEVER in logs (also not in exception
+  messages), accountId logged with only the first UUID group, by construction in the toString of OwnerId and AccountId;
+  duplicate/stale events logged at DEBUG. Metrics (Prometheus at /actuator/prometheus on the management port, only
+  health and prometheus exposed): balance.transactions.processed{result=applied|stale_ignored|duplicate|dlq}, timer
+  spring.kafka.listener, kafka.consumer.fetch.manager.records.lag.max (may be stale while partitions are paused),
+  resilience4j.circuitbreaker.* for balance-storage and balance-storage-read, and http.server.requests; no tag carries an
+  account, owner or transaction id. liveness depends only on the process; readiness only on the application availability
+  state (refuses traffic when shutdown starts) and NOT on DynamoDB/Kafka (instances share the dependency; checking it would
+  pull them all out of the load balancer together).
+  In Boot 4 tests, metrics and tracing instrumentation are off without @AutoConfigureMetrics and @AutoConfigureTracing; MockMvc
+  tests of the Actuator use management.server.port= (empty, same port as the API) and tests with a real server use
+  management.server.port=0.
   Tests: unit in src/test/kotlin (mirrors main packages, no infra, lambda fakes for ports, Mockito for AWS client,
   MockMvc for web, replacing the input port by an @Primary fake when the output port has a @Primary decorator or
   uses a value class) via `./gradlew check` with JaCoCo gate >= 90% instructions; integration in

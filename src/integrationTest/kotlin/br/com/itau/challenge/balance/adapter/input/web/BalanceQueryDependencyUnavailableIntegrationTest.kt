@@ -33,7 +33,7 @@ private val READ_API_CALL_TIMEOUT: Duration = Duration.ofMillis(800)
 private val SCHEDULING_TOLERANCE: Duration = Duration.ofMillis(700)
 private val FAST_FAILURE_LIMIT: Duration = Duration.ofMillis(300)
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = ["management.server.port=0"])
 class BalanceQueryDependencyUnavailableIntegrationTest {
 
     @LocalServerPort

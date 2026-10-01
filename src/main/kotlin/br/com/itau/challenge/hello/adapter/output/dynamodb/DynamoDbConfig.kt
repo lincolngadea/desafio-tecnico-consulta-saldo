@@ -1,14 +1,16 @@
 /*
- * L34-L35 READ_RETRY_BASE_DELAY e READ_RETRY_MAX_DELAY: o backoff padrão do SDK (100 ms e 1 s para throttling)
+ * L35-L36 READ_RETRY_BASE_DELAY e READ_RETRY_MAX_DELAY: o backoff padrão do SDK (100 ms e 1 s para throttling)
  *     consumiria o orçamento da leitura; o retry rápido fica em 50 a 100 ms e não é configurável (YAGNI).
- * L39 DynamoDbConfig: cria os clientes DynamoDB da aplicação a partir das propriedades, com timeouts e tentativas
+ * L40 DynamoDbConfig: cria os clientes DynamoDB da aplicação a partir das propriedades, com timeouts e tentativas
  *     explícitos: um por perfil de acesso, para a leitura ter orçamento curto sem encurtar a escrita
  *     (add-balance-query-api design D6).
- * L43-L54 dynamoDbClient: cliente da escrita e do `hello`; é `@Primary` para a injeção por tipo desses contextos
+ * L44-L55 dynamoDbClient: cliente da escrita e do `hello`; é `@Primary` para a injeção por tipo desses contextos
  *     continuar igual.
- * L57-L70 readDynamoDbClient: cliente da leitura: o SDK só deixa sobrescrever os timeouts por requisição, e não o
+ * L58-L71 readDynamoDbClient: cliente da leitura: o SDK só deixa sobrescrever os timeouts por requisição, e não o
  *     número de tentativas nem o backoff, então o "no máximo 1 retry" exige um cliente próprio.
- * L72-L87 clientBuilder: o que é comum aos dois perfis (endpoint, região, credenciais e HTTP) fica num só lugar.
+ * L73-L87 clientBuilder: o que é comum aos dois perfis (endpoint, região, credenciais e HTTP) fica num só lugar. As
+ *     credenciais vêm da cadeia padrão do SDK (variáveis de ambiente), e não do código, para a configuração só
+ *     variar por ambiente (12-Factor, add-observability design D9).
  * L89-L93 overrideConfiguration: os dois limites de tempo (`apiCallAttempt` e `apiCall`) são comuns aos perfis; só a
  *     estratégia de retry difere.
  *
@@ -20,8 +22,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.awscore.retry.AwsRetryStrategy
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration
 import software.amazon.awssdk.http.apache5.Apache5HttpClient
@@ -77,9 +78,8 @@ class DynamoDbConfig {
             .builder()
             .endpointOverride(properties.endpoint)
             .region(Region.of(properties.region))
-            .credentialsProvider(
-                StaticCredentialsProvider.create(AwsBasicCredentials.create("local", "local")),
-            ).httpClientBuilder(
+            .credentialsProvider(DefaultCredentialsProvider.builder().build())
+            .httpClientBuilder(
                 Apache5HttpClient
                     .builder()
                     .connectionTimeout(timeouts.connection)

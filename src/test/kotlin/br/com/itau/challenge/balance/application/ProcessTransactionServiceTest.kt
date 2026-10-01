@@ -84,6 +84,13 @@ class ProcessTransactionServiceTest {
     }
 
     @Test
+    fun `should return duplicate ignored without error when the repository ignores the same event again`() {
+        val result = serviceReturning(SnapshotSaveResult.DuplicateIgnored).processTransaction(TRANSACTION)
+
+        assertSame(SnapshotSaveResult.DuplicateIgnored, result)
+    }
+
+    @Test
     fun `should propagate the transient storage failure when the repository cannot save`() {
         val failure = TransientStorageException("throttled", RuntimeException())
         val service = ProcessTransactionService { throw failure }

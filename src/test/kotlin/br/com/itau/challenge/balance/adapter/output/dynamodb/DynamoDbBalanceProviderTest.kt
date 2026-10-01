@@ -1,7 +1,7 @@
 /*
- * L29 DynamoDbBalanceProviderTest: a leitura é o que a API expõe ao cliente, então um cliente simulado permite
- *     conferir, sem infraestrutura, que a consulta é fortemente consistente (nunca um saldo defasado) e que falha
- *     de leitura é classificada, e não engolida.
+ * L31 DynamoDbBalanceProviderTest: a leitura é o que a API expõe ao cliente, então um cliente simulado permite
+ *     conferir, sem infraestrutura, que a consulta é fortemente consistente (nunca um saldo defasado) e que falha de
+ *     leitura é classificada, e não engolida.
  *
  * Spec: Leitura do snapshot por conta; Classificação das falhas do DynamoDB
  * Enunciado: O que construir → Exposição (API REST)
@@ -24,7 +24,9 @@ import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException
 import java.math.BigDecimal
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class DynamoDbBalanceProviderTest {
 
@@ -115,4 +117,14 @@ class DynamoDbBalanceProviderTest {
 
     private fun responseWith(item: Map<String, AttributeValue>): GetItemResponse =
         GetItemResponse.builder().item(item).build()
+
+    @Test
+    fun `should mention only the first group of the account id when a failure message is built`() {
+        given(client.getItem(any(GetItemRequest::class.java))).willThrow(connectionRefused())
+
+        val failure = assertFailsWith<TransientStorageException> { provider.findByAccountId(SNAPSHOT.accountId) }
+
+        assertTrue(failure.message.orEmpty().contains(ACCOUNT_ID.substringBefore('-')), failure.message)
+        assertFalse(failure.message.orEmpty().contains(ACCOUNT_ID), failure.message)
+    }
 }

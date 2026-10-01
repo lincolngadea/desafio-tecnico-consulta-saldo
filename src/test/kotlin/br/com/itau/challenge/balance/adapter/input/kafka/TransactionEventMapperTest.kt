@@ -1,8 +1,12 @@
 /*
- * L26 TransactionEventMapperTest: confere o mapeamento com o `JsonMapper` real, e a lista de eventos malformados
- *     cobre parse, UUID, moeda, escala do valor, timestamp e campo obrigatório ausente.
+ * L35 TransactionEventMapperTest: confere o mapeamento com o `JsonMapper` real, incluindo parse, UUID, moeda,
+ *     escala, timestamp e campos ausentes. Os casos de privacidade incluem escala inválida e titular usado como
+ *     moeda ou UUID inválido, para cobrir causas que ecoam entrada.
+ * L119-L124 assertNoSensitiveData: imprime o stack trace inteiro, que é tudo o que um log pode conter da falha, e
+ *     confere que nem o titular nem o saldo do evento estão nele.
  *
- * Spec: Evento do tópico é lido conforme o contrato do enunciado; Erro permanente vai para a DLT com o motivo
+ * Spec: Evento do tópico é lido conforme o contrato do enunciado; Erro permanente vai para a DLT com o motivo; Dados
+ *     pessoais e payload nunca vão para o log
  * Enunciado: O que construir → Ingestão (input via Kafka)
  */
 package br.com.itau.challenge.balance.adapter.input.kafka
@@ -17,11 +21,16 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import tools.jackson.databind.json.JsonMapper
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.math.BigDecimal
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+
+private const val TRUNCATED_CHARACTERS = 12
 
 class TransactionEventMapperTest {
 
@@ -78,5 +87,66 @@ class TransactionEventMapperTest {
                 transactionEventJson(balanceJson = "null"),
                 """{"transaction": {"id": "$EVENT_TRANSACTION_ID", "timestamp": $EVENT_TIMESTAMP_MICROS}}""",
             )
+    }
+
+    @Test
+    fun `should not carry any part of the payload when the json is invalid`() {
+        val truncatedJson = transactionEventJson().dropLast(TRUNCATED_CHARACTERS)
+
+        val failure = assertFailsWith<MalformedTransactionEventException> { mapper.toTransaction(truncatedJson) }
+
+        assertNoSensitiveData(failure)
+    }
+
+    @Test
+    fun `should not carry any part of the payload when a field is of the wrong type`() {
+        val wrongType = transactionEventJson().replace("\"id\": \"$EVENT_ACCOUNT_ID\"", "\"id\": 42")
+
+        val failure = assertFailsWith<MalformedTransactionEventException> { mapper.toTransaction(wrongType) }
+
+        assertNoSensitiveData(failure)
+    }
+
+    @Test
+    fun `should not carry the owner or the balance when the domain rejects a value`() {
+        val invalidCurrency = transactionEventJson(balanceJson = """{"amount": 183.12, "currency": "XYZ"}""")
+
+        val failure = assertFailsWith<MalformedTransactionEventException> { mapper.toTransaction(invalidCurrency) }
+
+        assertNoSensitiveData(failure)
+    }
+
+    private fun assertNoSensitiveData(failure: Throwable) {
+        val everythingThatCanBeLogged = StringWriter().also { failure.printStackTrace(PrintWriter(it)) }.toString()
+
+        assertFalse(everythingThatCanBeLogged.contains(EVENT_OWNER_ID), everythingThatCanBeLogged)
+        assertFalse(everythingThatCanBeLogged.contains(EVENT_BALANCE_AMOUNT), everythingThatCanBeLogged)
+    }
+
+    @Test
+    fun `should not carry the balance when the domain rejects its decimal scale`() {
+        val invalidScale = transactionEventJson(balanceJson = """{"amount": 183.125, "currency": "BRL"}""")
+
+        val failure = assertFailsWith<MalformedTransactionEventException> { mapper.toTransaction(invalidScale) }
+
+        assertNoSensitiveData(failure)
+    }
+
+    @Test
+    fun `should not carry the owner when an invalid currency contains it`() {
+        val invalidCurrency = transactionEventJson(balanceJson = """{"amount": 183.12, "currency": "$EVENT_OWNER_ID"}""")
+
+        val failure = assertFailsWith<MalformedTransactionEventException> { mapper.toTransaction(invalidCurrency) }
+
+        assertNoSensitiveData(failure)
+    }
+
+    @Test
+    fun `should not carry the owner when an invalid uuid contains it`() {
+        val invalidIdentifier = transactionEventJson(accountId = "invalid-$EVENT_OWNER_ID")
+
+        val failure = assertFailsWith<MalformedTransactionEventException> { mapper.toTransaction(invalidIdentifier) }
+
+        assertNoSensitiveData(failure)
     }
 }

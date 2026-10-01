@@ -280,6 +280,7 @@ Todas têm valor padrão para desenvolvimento local (fora do Docker Compose) e s
 | Variável | Padrão (local) | Descrição |
 |-|-|-|
 | `DYNAMODB_ENDPOINT` | `http://localhost:8000` | endpoint do DynamoDB |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | (obrigatórias) | credenciais AWS, lidas pela cadeia padrão do SDK; no ambiente local, `local` e `local` (o Gradle `test` e `bootRun` já as definem). Fora do Gradle, exporte as duas antes de rodar `Application.kt` |
 | `DYNAMODB_REGION` | `us-east-1` | região (fake, para o SDK) |
 | `GREETING_TABLE_NAME` | `GreetingMessages` | tabela do DynamoDB |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | broker Kafka/Redpanda |
@@ -305,6 +306,38 @@ Todas têm valor padrão para desenvolvimento local (fora do Docker Compose) e s
 | `DYNAMODB_READ_API_CALL_TIMEOUT` | `800ms` | timeout da leitura inteira (pior caso da consulta); precisa comportar `maxAttempts × tentativa` |
 | `DYNAMODB_READ_MAX_ATTEMPTS` | `2` | tentativas da leitura (no máximo 2, ou seja, 1 retry) |
 | `BALANCE_API_RETRY_AFTER` | `5s` | valor do `Retry-After` do `503` |
+| `MANAGEMENT_PORT` | `8082` | porta de gerenciamento (probes e métricas), separada da API |
+| `LOG_FORMAT` | `logstash` | formato do log no console (JSON); `ecs` e `gelf` também são aceitos pelo Spring Boot |
+
+## Observabilidade e production readiness
+
+**Logs.** JSON de uma linha no console (formato `logstash` do Spring Boot), com `traceId` em todo log escrito durante uma requisição HTTP ou o processamento de um registro do Kafka. O `traceId` é o `trace-id` do cabeçalho `traceparent` (W3C Trace Context), no HTTP e no header do registro Kafka; se não vier, o serviço gera um. A DLT preserva o header. Não existe um segundo `correlationId`. O `traceId` do corpo de erro `problem+json` é o mesmo do log.
+
+**Dados sensíveis.** O `owner` e o payload do evento nunca vão para log. O `accountId` sai mascarado (só o primeiro grupo do UUID, por exemplo `AccountId(5b19c8b6)`), por construção no `toString` dos value objects. Evento duplicado ou mais antigo é logado em `DEBUG`; quem quer saber quantos são lê a métrica.
+
+**Health (porta `8082`, separada da API).**
+
+| Probe | URL | Depende de |
+|-|-|-|
+| liveness | `/actuator/health/liveness` | só do processo vivo |
+| readiness | `/actuator/health/readiness` | só do estado da aplicação (vira `503` ao começar o encerramento) |
+
+O `readiness` **não** depende do DynamoDB nem do Kafka, de propósito: todas as instâncias dividem a mesma dependência, então verificá-la tiraria todas do balanceador ao mesmo tempo, trocando a resposta controlada (`503` com `Retry-After`, circuito aberto falhando em milissegundos) por recusa de conexão. A indisponibilidade aparece na métrica do circuito. Justificativa completa em `openspec/changes/add-observability/design.md` (D7).
+
+**Métricas** (`/actuator/prometheus`, porta de gerenciamento; só `health` e `prometheus` estão expostos).
+
+| Métrica | O que mede |
+|-|-|
+| `balance_transactions_processed_total{result}` | eventos por desfecho: `applied`, `stale_ignored` (mais antigo), `duplicate` (o mesmo evento de novo) e `dlq` |
+| `spring_kafka_listener_seconds{spring_kafka_listener_id}` | latência de processamento por registro |
+| `kafka_consumer_fetch_manager_records_lag_max{client_id}` | maior lag entre as partições do consumer (mede a busca, e não o processamento: com o DynamoDB parado ele marcou 0 enquanto o lag real do broker era 30; use o estado do circuito e o contador de resultado, e veja a evolução documentada) |
+| `resilience4j_circuitbreaker_state{name,state}` | estado dos circuitos `balance-storage` (escrita) e `balance-storage-read` (leitura) |
+| `http_server_requests_seconds_*{status,uri,method}` | requisições HTTP por status, com a rota em padrão (`/balances/{accountId}`) |
+
+Nenhuma métrica leva `accountId`, `owner` ou `transactionId` como tag (cardinalidade baixa).
+
+
+**Evoluções documentadas (não implementadas):** gauge de lag via `AdminClient` (preciso mesmo com as partições pausadas), exportação de traces e um coletor, alertas e dashboards, autenticação do endpoint de gerenciamento e imagem com jar em camadas.
 
 ## Como rodar
 

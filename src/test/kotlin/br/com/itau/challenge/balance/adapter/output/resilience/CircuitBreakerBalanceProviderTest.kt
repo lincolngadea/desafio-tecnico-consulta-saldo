@@ -1,7 +1,7 @@
 /*
- * L35 ScriptedBalanceProvider: fake que honra o contrato do port e deixa o teste roteirizar o resultado de cada
+ * L36 ScriptedBalanceProvider: fake que honra o contrato do port e deixa o teste roteirizar o resultado de cada
  *     chamada.
- * L45 CircuitBreakerBalanceProviderTest: usa o circuito de leitura criado pela configuração de produção, para provar
+ * L46 CircuitBreakerBalanceProviderTest: usa o circuito de leitura criado pela configuração de produção, para provar
  *     o que conta como falha, e `null` (conta inexistente) conta como sucesso.
  *
  * Spec: Circuit breaker de leitura com a classificação de erros compartilhada
@@ -18,6 +18,7 @@ import br.com.itau.challenge.balance.port.output.PermanentStorageException
 import br.com.itau.challenge.balance.port.output.StorageUnavailableException
 import br.com.itau.challenge.balance.port.output.TransientStorageException
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import org.junit.jupiter.api.Test
 import java.time.Duration
 import kotlin.test.assertContains
@@ -53,6 +54,7 @@ class CircuitBreakerBalanceProviderTest {
                 waitDurationInOpenState = Duration.ofMinutes(1),
                 halfOpenCalls = HALF_OPEN_CALLS,
             ),
+            CircuitBreakerRegistry.ofDefaults(),
         )
     private val provider = CircuitBreakerBalanceProvider(delegate, circuitBreaker)
 

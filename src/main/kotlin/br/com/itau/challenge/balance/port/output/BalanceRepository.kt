@@ -15,8 +15,9 @@ fun interface BalanceRepository {
      * Grava [snapshot] somente se a conta ainda não tem snapshot ou se a versão dele é mais nova que a gravada,
      * conforme `SnapshotVersion`; a verificação e a gravação são uma única operação atômica.
      *
-     * @return [SnapshotSaveResult.Applied] quando gravou, e [SnapshotSaveResult.StaleIgnored] quando o snapshot
-     * gravado é tão recente quanto o oferecido, ou mais (evento fora de ordem ou duplicado).
+     * @return [SnapshotSaveResult.Applied] quando gravou, [SnapshotSaveResult.DuplicateIgnored] quando o snapshot
+     * gravado tem a mesma versão do oferecido (o mesmo evento de novo), e [SnapshotSaveResult.StaleIgnored] quando
+     * ele é mais novo (evento fora de ordem).
      * @throws TransientStorageException quando tentar de novo mais tarde pode dar certo.
      * @throws PermanentStorageException quando tentar de novo não ajuda.
      */

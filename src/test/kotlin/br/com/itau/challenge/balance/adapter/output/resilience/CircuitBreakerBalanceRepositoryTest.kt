@@ -1,10 +1,12 @@
 /*
- * L34 ScriptedBalanceRepository: fake que honra o contrato do port e deixa o teste roteirizar o resultado de cada
+ * L37 ScriptedBalanceRepository: fake que honra o contrato do port e deixa o teste roteirizar o resultado de cada
  *     chamada.
- * L44 CircuitBreakerBalanceRepositoryTest: usa o circuito criado pela configuração de produção, para provar o que
- *     conta como falha. A espera do estado aberto não é aguardada: `transitionToHalfOpenState` mantém o teste rápido.
+ * L47 CircuitBreakerBalanceRepositoryTest: usa o circuito criado pela configuração de produção, para provar o que
+ *     conta como falha. A espera do estado aberto não é aguardada: `transitionToHalfOpenState` mantém o teste
+ *     rápido.
  *
- * Spec: Falhas transitórias do armazenamento abrem o circuito; Circuito aberto falha rápido com exceção do port; Circuito semiaberto sonda a dependência
+ * Spec: Falhas transitórias do armazenamento abrem o circuito; Circuito aberto falha rápido com exceção do port;
+ *     Circuito semiaberto sonda a dependência
  * Enunciado: O que será avaliado → Resiliência
  */
 package br.com.itau.challenge.balance.adapter.output.resilience
@@ -18,6 +20,7 @@ import br.com.itau.challenge.balance.port.output.PermanentStorageException
 import br.com.itau.challenge.balance.port.output.StorageUnavailableException
 import br.com.itau.challenge.balance.port.output.TransientStorageException
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import org.junit.jupiter.api.Test
 import java.time.Duration
 import kotlin.test.assertContains
@@ -52,6 +55,7 @@ class CircuitBreakerBalanceRepositoryTest {
                 waitDurationInOpenState = Duration.ofMinutes(1),
                 halfOpenCalls = HALF_OPEN_CALLS,
             ),
+            CircuitBreakerRegistry.ofDefaults(),
         )
     private val repository = CircuitBreakerBalanceRepository(delegate, circuitBreaker)
 
@@ -84,6 +88,16 @@ class CircuitBreakerBalanceRepositoryTest {
 
         assertEquals(CircuitBreaker.State.CLOSED, circuitBreaker.state)
         assertEquals(listOf(SnapshotSaveResult.StaleIgnored), results.distinct())
+    }
+
+    @Test
+    fun `should keep the circuit closed when the repository ignores duplicated snapshots`() {
+        delegate.outcome = { SnapshotSaveResult.DuplicateIgnored }
+
+        val results = List(WINDOW_SIZE * 2) { repository.saveIfNewer(SNAPSHOT) }
+
+        assertEquals(CircuitBreaker.State.CLOSED, circuitBreaker.state)
+        assertEquals(listOf(SnapshotSaveResult.DuplicateIgnored), results.distinct())
     }
 
     @Test

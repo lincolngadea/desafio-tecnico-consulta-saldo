@@ -1,18 +1,24 @@
 /*
- * L35-L36 BALANCE_STORAGE_WRITE_CIRCUIT_BREAKER e BALANCE_STORAGE_READ_CIRCUIT_BREAKER: nomes dos circuitos, que
+ * L43-L44 BALANCE_STORAGE_WRITE_CIRCUIT_BREAKER e BALANCE_STORAGE_READ_CIRCUIT_BREAKER: nomes dos circuitos, que
  *     aparecem na mensagem de `StorageUnavailableException` e identificam cada circuito em métricas futuras.
- * L42 BalanceCircuitBreakerConfig: isola em uma configuração a criação dos circuit breakers e a decoração do
+ * L50 BalanceCircuitBreakerConfig: isola em uma configuração a criação dos circuit breakers e a decoração do
  *     repositório e do provider de saldo.
- * L45-L46 balanceWriteCircuitBreaker: circuito da escrita, que pausa a ingestão quando abre; é instância própria
+ * L53 balanceCircuitBreakerRegistry: os circuitos nascem de um registry porque o `resilience4j-micrometer` publica
+ *     as métricas a partir dele; sem registry, o estado dos circuitos não chegaria ao Prometheus (add-observability
+ *     design D5). Enunciado: O que será avaliado → Production readiness
+ * L56-L59 balanceWriteCircuitBreaker: circuito da escrita, que pausa a ingestão quando abre; é instância própria
  *     para a API não pausar o consumer (add-balance-query-api design D7). O nome diz a que lado o circuito serve,
  *     porque há dois beans do mesmo tipo.
- * L49-L50 balanceReadCircuitBreaker: circuito da leitura, independente do da escrita: janelas, sondas e perfis de
+ * L62-L65 balanceReadCircuitBreaker: circuito da leitura, independente do da escrita: janelas, sondas e perfis de
  *     timeout diferentes não devem se misturar.
- * L54-L57 resilientBalanceRepository: `@Primary` faz o caso de uso receber o repositório protegido; o writer entra
+ * L68 balanceCircuitBreakerMetrics: publica o estado, as chamadas e a taxa de falha dos dois circuitos,
+ *     identificados pelo nome, pela solução pronta do Resilience4j, e não por gauges escritos à mão. Enunciado: O
+ *     que será avaliado → Production readiness
+ * L73-L76 resilientBalanceRepository: `@Primary` faz o caso de uso receber o repositório protegido; o writer entra
  *     por qualificador de nome para este pacote não depender da classe concreta do adapter DynamoDB.
- * L61-L64 resilientBalanceProvider: `@Primary` faz o caso de consulta receber o provider protegido, com o mesmo
+ * L80-L83 resilientBalanceProvider: `@Primary` faz o caso de consulta receber o provider protegido, com o mesmo
  *     critério de qualificador do repositório.
- * L66-L76 storageCircuitBreakerConfig: definição única do que conta como falha, compartilhada pelos dois circuitos
+ * L85-L95 storageCircuitBreakerConfig: definição única do que conta como falha, compartilhada pelos dois circuitos
  *     (DRY): só `TransientStorageException` conta; `PermanentStorageException` é ignorada porque nada diz sobre a
  *     saúde da dependência. `minimumNumberOfCalls` igual à janela evita abrir o circuito com poucas chamadas.
  *
@@ -26,6 +32,8 @@ import br.com.itau.challenge.balance.port.output.PermanentStorageException
 import br.com.itau.challenge.balance.port.output.TransientStorageException
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
+import io.github.resilience4j.micrometer.tagged.TaggedCircuitBreakerMetrics
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
@@ -42,12 +50,23 @@ private const val READ_CIRCUIT_BREAKER_BEAN = "balanceReadCircuitBreaker"
 class BalanceCircuitBreakerConfig {
 
     @Bean
-    fun balanceWriteCircuitBreaker(properties: CircuitBreakerProperties): CircuitBreaker =
-        CircuitBreaker.of(BALANCE_STORAGE_WRITE_CIRCUIT_BREAKER, storageCircuitBreakerConfig(properties))
+    fun balanceCircuitBreakerRegistry(): CircuitBreakerRegistry = CircuitBreakerRegistry.ofDefaults()
 
     @Bean
-    fun balanceReadCircuitBreaker(properties: CircuitBreakerProperties): CircuitBreaker =
-        CircuitBreaker.of(BALANCE_STORAGE_READ_CIRCUIT_BREAKER, storageCircuitBreakerConfig(properties))
+    fun balanceWriteCircuitBreaker(
+        properties: CircuitBreakerProperties,
+        registry: CircuitBreakerRegistry,
+    ): CircuitBreaker = registry.circuitBreaker(BALANCE_STORAGE_WRITE_CIRCUIT_BREAKER, storageCircuitBreakerConfig(properties))
+
+    @Bean
+    fun balanceReadCircuitBreaker(
+        properties: CircuitBreakerProperties,
+        registry: CircuitBreakerRegistry,
+    ): CircuitBreaker = registry.circuitBreaker(BALANCE_STORAGE_READ_CIRCUIT_BREAKER, storageCircuitBreakerConfig(properties))
+
+    @Bean
+    fun balanceCircuitBreakerMetrics(registry: CircuitBreakerRegistry): TaggedCircuitBreakerMetrics =
+        TaggedCircuitBreakerMetrics.ofCircuitBreakerRegistry(registry)
 
     @Bean
     @Primary

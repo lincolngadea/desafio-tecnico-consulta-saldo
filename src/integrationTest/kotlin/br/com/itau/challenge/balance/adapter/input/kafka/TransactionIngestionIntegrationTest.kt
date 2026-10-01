@@ -1,8 +1,9 @@
 /*
- * L33 TransactionIngestionIntegrationTest: sobe a aplicação real contra o Redpanda, com o caso de uso roteirizado, e
+ * L34 TransactionIngestionIntegrationTest: sobe a aplicação real contra o Redpanda, com o caso de uso roteirizado, e
  *     confere o commit do offset e a DLT pelo broker, e não por mocks.
  *
- * Spec: Offset confirmado manualmente só depois da persistência; Erro permanente vai para a DLT com o motivo; Erro transitório é tentado de novo com backoff exponencial e jitter
+ * Spec: Offset confirmado manualmente só depois da persistência; Erro permanente vai para a DLT com o motivo; Erro
+ *     transitório é tentado de novo com backoff exponencial e jitter
  * Enunciado: O que construir → Ingestão (input via Kafka)
  */
 package br.com.itau.challenge.balance.adapter.input.kafka

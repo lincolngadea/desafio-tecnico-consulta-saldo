@@ -39,7 +39,7 @@ private const val OK = 200
 private const val BAD_REQUEST = 400
 private const val NOT_FOUND = 404
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = ["management.server.port=0"])
 class BalanceQueryEndToEndIntegrationTest {
 
     @LocalServerPort
@@ -51,10 +51,14 @@ class BalanceQueryEndToEndIntegrationTest {
     private val httpClient = HttpClient.newHttpClient()
     private val jsonMapper = JsonMapper.builder().build()
 
-    private fun awaitBalance(accountId: String): tools.jackson.databind.JsonNode {
+    private fun awaitBalanceBody(accountId: String): String {
         await().atMost(AWAIT_TIMEOUT).until { httpClient.get(port, "/balances/$accountId").statusCode() == OK }
-        return jsonMapper.readTree(httpClient.get(port, "/balances/$accountId").body())
+        return httpClient.get(port, "/balances/$accountId").body()
     }
+
+    private fun awaitBalance(accountId: String): tools.jackson.databind.JsonNode = jsonMapper.readTree(awaitBalanceBody(accountId))
+
+    private fun amountTextOf(body: String): String = Regex(""""amount":(-?[0-9.]+)""").find(body)?.groupValues?.get(1).orEmpty()
 
     private fun awaitCommittedPast(offset: Long) {
         await().atMost(AWAIT_TIMEOUT).until { (committedOffset(topics.groupId, TopicPartition(topics.main, 0)) ?: 0L) > offset }
@@ -76,11 +80,12 @@ class BalanceQueryEndToEndIntegrationTest {
         val accountId = UUID.randomUUID().toString()
         publishEvent(accountId)
 
-        val body = awaitBalance(accountId)
+        val rawBody = awaitBalanceBody(accountId)
+        val body = jsonMapper.readTree(rawBody)
 
         assertEquals(accountId, body["id"].asString())
         assertEquals("315e3cfe-f4af-4cd2-b298-a449e614349a", body["owner"].asString())
-        assertEquals("500.00", body["balance"]["amount"].decimalValue().toPlainString())
+        assertEquals("500.00", amountTextOf(rawBody))
         assertEquals("BRL", body["balance"]["currency"].asString())
         assertEquals("2025-07-04T12:02:44.589-03:00", body["updated_at"].asString())
     }
@@ -107,7 +112,7 @@ class BalanceQueryEndToEndIntegrationTest {
         val olderEventOffset = publishEvent(accountId, OLDER_TIMESTAMP_MICROS, balanceJson = OLDER_BALANCE)
         awaitCommittedPast(olderEventOffset)
 
-        assertEquals("500.00", awaitBalance(accountId)["balance"]["amount"].decimalValue().toPlainString())
+        assertEquals("500.00", amountTextOf(awaitBalanceBody(accountId)))
     }
 
     @Test
@@ -119,7 +124,7 @@ class BalanceQueryEndToEndIntegrationTest {
         publishEvent(accountId, NEWER_TIMESTAMP_MICROS + 5_000_000, status = "DECLINED", balanceJson = NEWER_BALANCE)
         await().atMost(AWAIT_TIMEOUT).until { awaitBalance(accountId)["updated_at"].asString() != before }
 
-        assertEquals("500.00", awaitBalance(accountId)["balance"]["amount"].decimalValue().toPlainString())
+        assertEquals("500.00", amountTextOf(awaitBalanceBody(accountId)))
     }
 
     companion object {

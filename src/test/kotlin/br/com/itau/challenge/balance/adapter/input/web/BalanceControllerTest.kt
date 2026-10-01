@@ -1,5 +1,5 @@
 /*
- * L48 BalanceControllerTest: teste de contrato do adapter HTTP: o caso de uso é um fake roteirizável, então cada
+ * L50 BalanceControllerTest: teste de contrato do adapter HTTP: o caso de uso é um fake roteirizável, então cada
  *     exceção do núcleo e cada ausência são provadas como o status, os cabeçalhos e o corpo que o cliente vê. O
  *     texto cru do corpo é conferido onde o formato do número importa, e o caminho codificado e com parâmetros de
  *     caminho prova que o `no-store` não tem desvio de URL.
@@ -23,6 +23,7 @@ import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
@@ -44,6 +45,7 @@ private const val TRACE_ID_LENGTH = 32
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@AutoConfigureTracing
 @Import(ScriptedGetBalanceUseCaseConfiguration::class)
 class BalanceControllerTest(
     @Autowired private val mockMvc: MockMvc,

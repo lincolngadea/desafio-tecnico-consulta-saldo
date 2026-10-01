@@ -14,7 +14,8 @@ fun interface ProcessTransactionUseCase {
     /**
      * Grava o saldo trazido por [transaction] como snapshot da conta, sem recalculá-lo.
      *
-     * @return o resultado da gravação: [SnapshotSaveResult.Applied] ou [SnapshotSaveResult.StaleIgnored].
+     * @return o resultado da gravação: [SnapshotSaveResult.Applied], [SnapshotSaveResult.StaleIgnored] ou
+     * [SnapshotSaveResult.DuplicateIgnored].
      * @throws br.com.itau.challenge.balance.port.output.TransientStorageException quando tentar de novo mais tarde
      * pode dar certo.
      * @throws br.com.itau.challenge.balance.port.output.StorageUnavailableException quando o armazenamento está
