@@ -175,9 +175,10 @@ context: |
   tested.
   Test names: backtick `should ... when ...`, AAA layout, kotlin.test asserts.
   CI: GitHub Actions on every push/PR to main/kotlin (compile, check + integration, Docker image build, CodeQL).
-  CodeQL uses build-mode manual with Kotlin compiled in-process and a single Gradle worker, and NO setup-gradle or
-  other Gradle cache: the Kotlin extractor is single-threaded and hung autobuild at compileKotlin, and a task restored
-  from cache is not extracted; never go back to autobuild nor align CodeQL with the other workflows on this point.
+  CodeQL uses build-mode manual with Kotlin compiled in-process, a single Gradle worker and a 4 GiB Gradle heap
+  (-Dorg.gradle.jvmargs only in the analysis command), and NO setup-gradle or other Gradle cache: the Kotlin extractor
+  is single-threaded and hung autobuild at compileKotlin, in-process the default 512 MiB heap runs out with the
+  extractor, and a task restored from cache is not extracted; never go back to autobuild nor align CodeQL with the other workflows on this point.
   Git: main branch `kotlin`; Conventional Commits 1.0.0 `<type>(<scope>)!: <description>` (types feat/fix/refactor/
   perf/test/docs/build/ci/chore/style/revert; scope = bounded context or area; type/scope in English, description,
   body and footer in PORTUGUESE, imperative, lowercase, no period, header <= 72 chars); one commit per OpenSpec

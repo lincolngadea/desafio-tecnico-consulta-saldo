@@ -16,11 +16,15 @@ O workflow do CodeQL MUST analisar `java-kotlin` com um build declarado no próp
 - **THEN** o comando compila as classes de produção, de teste unitário e de teste de integração
 
 ### Requirement: Compilação compatível com o extrator Kotlin
-O build da análise MUST compilar Kotlin no próprio processo do Gradle e com um único worker, porque o extrator Kotlin do CodeQL é single-threaded e trava a compilação feita fora de processo ou em paralelo. Essas configurações MUST valer só para a análise, sem alterar o build local, o `make test` nem os demais workflows.
+O build da análise MUST compilar Kotlin no próprio processo do Gradle, com um único worker e com heap suficiente para o compilador e o extrator juntos. O extrator Kotlin do CodeQL é single-threaded e trava a compilação feita fora de processo ou em paralelo, e o heap padrão do Gradle esgota com o extrator acoplado. Essas configurações MUST valer só para a análise, sem alterar o build local, o `make test` nem os demais workflows.
 
 #### Scenario: Compilação em processo com um único worker
 - **WHEN** o passo de build do workflow do CodeQL é lido
 - **THEN** o comando define a estratégia de compilação Kotlin em processo e limita o Gradle a um worker
+
+#### Scenario: Heap do Gradle dimensionado para o extrator
+- **WHEN** o passo de build do workflow do CodeQL é lido
+- **THEN** o comando define os argumentos de JVM do Gradle com heap máximo de 4 GiB e metaspace máximo de 1 GiB
 
 #### Scenario: Build local não herda as configurações da análise
 - **WHEN** o repositório é inspecionado fora do workflow do CodeQL

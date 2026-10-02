@@ -1,10 +1,11 @@
-# L33 analyze.timeout-minutes: um novo travamento falha em minutos, e não após as 6 h padrão da plataforma
+# L34 analyze.timeout-minutes: um novo travamento falha em minutos, e não após as 6 h padrão da plataforma
 #     (fix-codeql-build design D4).
-# L44-L48 Initialize CodeQL: Kotlin exige build, e o autobuild não aceita parâmetros; o build manual torna
+# L45-L49 Initialize CodeQL: Kotlin exige build, e o autobuild não aceita parâmetros; o build manual torna
 #     explícito e testável o comando que o extrator rastreia.
-# L50-L51 Compile all source sets: o extrator Kotlin é single-threaded e travou o compileKotlin por horas;
-#     em processo e com um worker a compilação termina. Sem setup-gradle, porque uma task restaurada do cache
-#     não compila e não seria extraída (fix-codeql-build design D2, D3, D5).
+# L51-L55 Compile all source sets: o extrator Kotlin é single-threaded e travou o compileKotlin por horas;
+#     em processo e com um worker a compilação termina, e o heap de 4 GiB comporta compilador e extrator, que
+#     esgotaram os 512 MiB padrão. Sem setup-gradle, porque uma task restaurada do cache não compila e não seria
+#     extraída (fix-codeql-build design D2, D3, D5).
 # Enunciado: n/a (fix-codeql-build design D1)
 
 name: CodeQL
@@ -48,7 +49,10 @@ jobs:
           build-mode: manual
 
       - name: Compile all source sets
-        run: ./gradlew testClasses integrationTestClasses --no-daemon -Pkotlin.compiler.execution.strategy=in-process --max-workers=1
+        run: >-
+          ./gradlew testClasses integrationTestClasses --no-daemon
+          -Pkotlin.compiler.execution.strategy=in-process --max-workers=1
+          "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4

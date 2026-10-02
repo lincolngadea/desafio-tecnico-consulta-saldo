@@ -36,7 +36,9 @@ O passo de build usa `-Pkotlin.compiler.execution.strategy=in-process` e `--max-
 
 - `kotlin.compiler.execution.strategy` é uma propriedade Gradle do Kotlin Gradle Plugin. Passada por `-P`, vale só para essa invocação. Com `in-process`, o compilador Kotlin roda dentro do processo do Gradle, onde o rastreamento do CodeQL o alcança, e não num *Kotlin daemon* separado.
 - `--max-workers=1` é o equivalente de linha de comando de `org.gradle.workers.max=1` e serializa as compilações, como o extrator single-threaded exige.
-- **Alternativa descartada:** `GRADLE_OPTS`/`JAVA_TOOL_OPTIONS` no `env` do job. Isso passaria propriedades de sistema da JVM, e não propriedades Gradle, e ainda as aplicaria a todo processo Java do job, inclusive aos do próprio CodeQL.
+- `"-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"` dimensiona o heap do processo do Gradle. Com `in-process`, o compilador Kotlin e o extrator do CodeQL rodam nesse processo, e o padrão de 512 MiB de heap e 384 MiB de metaspace esgotou na execução real (D5). O `org.gradle.jvmargs` passado por `-D` na linha de comando vale só para essa invocação, e com `--no-daemon` o Gradle cria o daemon de uso único com esses argumentos. O runner `ubuntu-latest` tem 16 GB de RAM em repositório público, que é o caso exigido pelo enunciado, e 7 GB em privado. Nos dois casos, 4 GiB de heap cabem.
+- **Alternativa descartada:** `GRADLE_OPTS`/`JAVA_TOOL_OPTIONS` no `env` do job. Isso passaria propriedades de sistema da JVM, e não propriedades Gradle, e ainda as aplicaria a todo processo Java do job, inclusive aos do próprio CodeQL. Pelo mesmo motivo, o heap vai em `org.gradle.jvmargs` do comando, e não no `env`.
+- **Alternativa descartada:** `org.gradle.jvmargs` num `gradle.properties` versionado. Isso aumentaria também o heap do build local e do `make test`, que não precisam dele.
 
 ### D3. Comando de build: `./gradlew testClasses integrationTestClasses --no-daemon`
 
@@ -66,9 +68,19 @@ Evidência do log da run 37041862434 (CodeQL 2.27.1):
 
 A execução real depois do push (task 4.6) continua sendo a validação final. Se ela falhar ou atingir o timeout de 30 min (D4), o log da nova execução é analisado e o plano é revisto com o usuário antes do archive.
 
+**Primeira execução real, commit `045170c`:** o travamento acabou, e o job terminou em cerca de 3 min, mas o build falhou por memória em `:compileKotlin`:
+
+```
+20:49:01 > Task :compileKotlin
+The currently configured max heap space is '512 MiB' and the configured max metaspace is '384 MiB'.
+Gradle build daemon has been stopped: since the JVM garbage collector is thrashing
+```
+
+Com `in-process`, o compilador e o extrator rodam no processo do Gradle, que tem o heap padrão. O travamento original provavelmente era o mesmo esgotamento dentro do Kotlin daemon, que não tem esse encerramento e por isso ficava preso, mas isso é uma inferência que o log não confirma. O plano foi revisto com o usuário, que aprovou aumentar o heap só no comando da análise (D2).
+
 ### D6. Teste estático `CodeQlWorkflowTest`
 
-- Lê `.github/workflows/codeql.yml` com o SnakeYAML do Boot (`org.yaml.snakeyaml.Yaml`), como o `ComposeFileTest`, e verifica cada cenário de arquivo da spec `code-scanning`: build manual sem autobuild, comando que compila as três árvores, compilação em processo com um worker e `timeout-minutes` ≤ 30.
+- Lê `.github/workflows/codeql.yml` com o SnakeYAML do Boot (`org.yaml.snakeyaml.Yaml`), como o `ComposeFileTest`, e verifica cada cenário de arquivo da spec `code-scanning`: build manual sem autobuild, comando que compila as três árvores, compilação em processo com um worker, heap do Gradle dimensionado para o extrator e `timeout-minutes` ≤ 30.
 - O cenário *Build local não herda as configurações da análise* é verificado no mesmo teste: o repositório não tem `gradle.properties` com essas chaves.
 - O cenário *Execução real conclui* não tem teste automatizado. Ele é validado pela execução no GitHub (task de validação) e registrado no relatório de revisão.
 - **Pacote:** `br.com.itau.challenge.codescanning`, com o nome da capability. Os testes estáticos de infraestrutura existentes ficam em `observability` porque vieram da change `add-observability`. O CodeQL não é observabilidade, então colocá-lo ali usaria um nome para dois conceitos (Art. 8). Essa é a divergência explícita do padrão.
@@ -90,6 +102,15 @@ O teste também lê o `gradle.properties` (cenário *Build local não herda as c
 - `codeql.yml` ganha cabeçalho em linhas `#`, como o `docker-compose.yml`, com uma entrada por trecho alterado (`init`, passo de build, `timeout-minutes`).
 - O CodeQL não corresponde a nenhum item do enunciado. A linha final é `Enunciado: n/a (fix-codeql-build design D1)`, e o teste usa `Spec: <requisitos de code-scanning>` com o mesmo `Enunciado: n/a`.
 - `build.gradle.kts` e `Dockerfile` atualizam as entradas e as linhas de cabeçalho que mudarem.
+
+### D9. Segundo commit da mesma change (decisão do usuário)
+
+O commit `045170c` desta change já foi publicado na `kotlin` quando a execução real revelou a falta de heap. A regra é um commit por change, e havia duas saídas:
+
+- um segundo commit com a correção do heap;
+- reescrever o `045170c` com amend e force push.
+
+O usuário escolheu o **segundo commit**, para não reescrever o histórico de uma branch publicada. É uma exceção explícita à regra, válida só para esta change.
 
 ## Conformidade, padrões e coerência
 

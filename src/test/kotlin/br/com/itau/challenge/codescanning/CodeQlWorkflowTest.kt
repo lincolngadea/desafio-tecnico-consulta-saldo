@@ -1,7 +1,7 @@
 /*
- * L33 CodeQlWorkflowTest: lê o workflow com o YAML do Boot, como o ComposeFileTest, porque a análise só roda no
+ * L34 CodeQlWorkflowTest: lê o workflow com o YAML do Boot, como o ComposeFileTest, porque a análise só roda no
  *     GitHub; assim o check protege a configuração que destrava o extrator Kotlin.
- * L82-L87 should keep the analysis settings out of the versioned gradle properties: o `gradle.properties` é o
+ * L91-L96 should keep the analysis settings out of the versioned gradle properties: o `gradle.properties` é o
  *     lugar versionado dessas chaves; sem elas ali, o build local mantém o Kotlin daemon e workers paralelos.
  *
  * Spec: Análise compila o código com build explícito; Compilação compatível com o extrator Kotlin; Duração
@@ -27,6 +27,7 @@ private const val KOTLIN_EXECUTION_STRATEGY = "kotlin.compiler.execution.strateg
 private const val GRADLE_WORKERS_MAX = "org.gradle.workers.max"
 private const val KOTLIN_IN_PROCESS = "-P$KOTLIN_EXECUTION_STRATEGY=in-process"
 private const val SINGLE_WORKER = "--max-workers=1"
+private const val EXTRACTOR_SIZED_GRADLE_HEAP = "\"-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g\""
 private const val MAX_TIMEOUT_MINUTES = 30
 
 @Suppress("UNCHECKED_CAST")
@@ -39,8 +40,9 @@ class CodeQlWorkflowTest {
     private fun stepsUsing(action: String): List<Map<String, Any>> =
         steps.filter { (it["uses"] as String?).orEmpty().startsWith(action) }
 
-    private fun buildArguments(): List<String> =
-        steps.mapNotNull { it["run"] as String? }.flatMap { it.split(Regex("""\s+""")) }
+    private fun buildCommand(): String = steps.mapNotNull { it["run"] as String? }.joinToString("\n")
+
+    private fun buildArguments(): List<String> = buildCommand().split(Regex("""\s+"""))
 
     private fun versionedGradlePropertiesOrEmpty(): String =
         File(GRADLE_PROPERTIES).takeIf { it.exists() }?.readText().orEmpty()
@@ -68,6 +70,13 @@ class CodeQlWorkflowTest {
 
         assertContains(arguments, KOTLIN_IN_PROCESS)
         assertContains(arguments, SINGLE_WORKER)
+    }
+
+    @Test
+    fun `should size the gradle heap for the extractor when the build step runs`() {
+        val command = buildCommand()
+
+        assertContains(command, EXTRACTOR_SIZED_GRADLE_HEAP)
     }
 
     @Test

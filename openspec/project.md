@@ -208,7 +208,7 @@ Gates e regras:
 
 - Branch principal: **`kotlin`** (a CI também observa `main`).
 - CI em todo push/PR para `main`/`kotlin`: compilação, `check` + integração, build da imagem Docker e CodeQL.
-- CodeQL usa build manual, com Kotlin compilado em processo e um único worker Gradle, e sem `setup-gradle` ou outro cache Gradle. O extrator Kotlin é single-threaded e travou o `autobuild` no `compileKotlin`, e uma task restaurada do cache não é extraída. Não voltar ao `autobuild` nem igualar o CodeQL aos outros workflows nesse ponto.
+- CodeQL usa build manual, com Kotlin compilado em processo, um único worker Gradle e heap do Gradle de 4 GiB (`-Dorg.gradle.jvmargs` só no comando da análise), e sem `setup-gradle` ou outro cache Gradle. O extrator Kotlin é single-threaded e travou o `autobuild` no `compileKotlin`; em processo, o heap padrão de 512 MiB esgota com o extrator; e uma task restaurada do cache não é extraída. Não voltar ao `autobuild` nem igualar o CodeQL aos outros workflows nesse ponto.
 - Commits seguem **[Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)**: `<type>(<scope>)!: <descrição>`.
   - `type`: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`, `style`, `revert`.
   - `scope` (opcional): bounded context ou área (ex.: `balance`, `hello`, `infra`, `openspec`, `deps`).
