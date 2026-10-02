@@ -19,14 +19,14 @@ O consumer MUST ler cada mensagem de `transacoes-financeiras-processadas` como J
 - **THEN** o evento é processado normalmente
 
 ### Requirement: Offset confirmado manualmente só depois da persistência
-O consumer MUST usar commit manual e MUST confirmar o offset de um registro somente depois de `ProcessTransactionUseCase` retornar (`Applied` ou `StaleIgnored`) ou de o registro ser aceito pela DLT. O consumer MUST NOT confirmar o offset de um registro cuja persistência falhou por erro transitório (at-least-once).
+O consumer MUST usar commit manual e MUST confirmar o offset de um registro somente depois de `ProcessTransactionUseCase` retornar (`Applied`, `StaleIgnored` ou `DuplicateIgnored`) ou de o registro ser aceito pela DLT. O consumer MUST NOT confirmar o offset de um registro cuja persistência falhou por erro transitório (at-least-once).
 
 #### Scenario: Offset confirmado depois da gravação
 - **WHEN** o caso de uso retorna `Applied`
 - **THEN** o offset do registro é confirmado e só depois disso
 
 #### Scenario: Evento duplicado ou fora de ordem também é confirmado
-- **WHEN** o caso de uso retorna `StaleIgnored`
+- **WHEN** o caso de uso retorna `StaleIgnored` ou `DuplicateIgnored`
 - **THEN** o offset do registro é confirmado e nenhum erro é registrado
 
 #### Scenario: Falha transitória não confirma o offset
@@ -134,7 +134,7 @@ Ao encerrar, o consumer MUST terminar o registro em andamento, confirmar o seu o
 - **THEN** o agendador da retomada é encerrado junto, e nenhuma retomada fica pendente
 
 ### Requirement: Rebalance sem perda
-Num rebalance, os registros já persistidos e confirmados MUST NOT ser reprocessados, e os não confirmados MUST ser entregues ao novo dono, onde um reprocessamento MUST resultar em `StaleIgnored`, sem erro.
+Num rebalance, os registros já persistidos e confirmados MUST NOT ser reprocessados, e os não confirmados MUST ser entregues ao novo dono, onde um reprocessamento MUST resultar em `DuplicateIgnored`, sem erro.
 
 #### Scenario: Partições revogadas durante o consumo
 - **WHEN** um segundo consumidor do mesmo grupo entra e as partições são redistribuídas durante o consumo

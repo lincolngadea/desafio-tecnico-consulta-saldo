@@ -1,3 +1,7 @@
+# L84-L85 kafka-topics-ingestion: seed e alvo make compartilham o script para não duplicar os tópicos nem as partições
+#     (add-observability design D10).
+# Enunciado: Como começar → Criando o tópico Kafka
+
 .DEFAULT_GOAL := help
 
 IMAGE := itau-hello-world
@@ -77,14 +81,8 @@ kafka-topic-create: ## Create a Kafka topic on Redpanda (usage: make kafka-topic
 		topic create $(NAME) --brokers redpanda:9092 --partitions $(PARTITIONS) --replicas 1
 
 .PHONY: kafka-topics-ingestion
-kafka-topics-ingestion: ## Create (idempotent) the transactions topic and its DLT with 6 partitions each
-	@for topic in transacoes-financeiras-processadas transacoes-financeiras-processadas.DLT; do \
-		if $(COMPOSE) run --rm --entrypoint rpk redpanda-seed topic describe $$topic --brokers redpanda:9092 >/dev/null 2>&1; then \
-			echo "$$topic already exists"; \
-		else \
-			$(MAKE) --no-print-directory kafka-topic-create NAME=$$topic PARTITIONS=6; \
-		fi; \
-	done
+kafka-topics-ingestion: ## Create (idempotent) the transactions topic and its DLT (same script the seed runs)
+	$(COMPOSE) run --rm --entrypoint /bin/bash redpanda-seed /redpanda-seed/ingestion-topics.sh
 
 .PHONY: kafka-produce-accounts-events
 kafka-produce-accounts-events: ## Produce random account-event JSON messages to a Kafka topic (usage: make kafka-produce-accounts-events TOPIC=my-topic [COUNT=100])

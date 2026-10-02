@@ -1,6 +1,7 @@
-# L9-L10 http: mantém o alvo local usado pelos links do README.
-# L17-L21 openspec: somente contexto, changes e specs participam do inventário e dos links dos testes.
-# L23-L27 exclusões privadas: material pessoal e credenciais não participam de nenhuma imagem de teste ou runtime.
+# L10-L11 http: mantém o alvo local usado pelos links do README.
+# L18-L22 openspec: somente contexto, changes e specs participam do inventário e dos links dos testes.
+# L24-L28 exclusões privadas: material pessoal e credenciais não participam de nenhuma imagem de teste ou runtime.
+# L29 docs: documentação auxiliar não participa das imagens; os inputs usados pelos testes são copiados explicitamente.
 # Enunciado: O que será avaliado → Production readiness
 .gradle
 .idea
@@ -25,3 +26,4 @@ openspec/*
 .env.*
 *.pem
 *.key
+docs

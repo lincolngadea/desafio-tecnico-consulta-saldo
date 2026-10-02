@@ -41,12 +41,12 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 
 | Serviço | Porta host | Função |
 |-|-|-|
-| `app` | 8080 | Aplicação (imagem `runtime`) |
+| `app` | 8080 (API), 8082 (gerenciamento) | Aplicação (imagem `runtime`); espera os seeds terminarem e tem healthcheck no `readiness` |
 | `dynamodb` | 8000 | DynamoDB Local (`-sharedDb -inMemory`) |
 | `dynamodb-seed` | — | `infra/dynamodb/seed.sh`: cria as tabelas `GreetingMessages` e `AccountBalances` (idempotente) e faz o seed |
 | `dynamodb-admin` | 8001 | Console web do DynamoDB |
 | `redpanda` | 19092 (externo) / `redpanda:9092` (interno) | Broker Kafka |
-| `redpanda-seed` | — | `infra/redpanda/config.sh && seed.sh`: config do cluster, cria tópico e publica o seed |
+| `redpanda-seed` | — | `infra/redpanda/config.sh && seed.sh && ingestion-topics.sh`: config do cluster, cria o tópico do `hello`, publica o seed e cria os tópicos de ingestão |
 | `redpanda-console` | 8081 | Console web do Kafka |
 
 ### Configuração (`src/main/resources/application.yaml`)
@@ -73,7 +73,8 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 | `balance.api.retry-after` | `BALANCE_API_RETRY_AFTER` | `5s` |
 | `management.server.port` | `MANAGEMENT_PORT` | `8082` (probes e métricas, separada da API) |
 | `logging.structured.format.console` | `LOG_FORMAT` | `logstash` (JSON) |
-| (SDK AWS) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | obrigatórias; `local` nas tarefas `test`, `integrationTest` e `bootRun` do Gradle |
+| (SDK AWS) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | obrigatórias; `local` no compose e nas tarefas `test`, `integrationTest` e `bootRun` do Gradle |
+| (JVM da imagem) | `JAVA_TOOL_OPTIONS` | `-XX:MaxRAMPercentage=70.0 -XX:+ExitOnOutOfMemoryError` |
 
 As credenciais AWS não ficam no código: o cliente usa a cadeia padrão do SDK. Há um `DynamoDbClient` por perfil de acesso, ambos em infraestrutura técnica neutra, fora de `hello`, com timeouts e tentativas explícitos: o `dynamoDbClient` (`@Primary`, escrita e `hello`) e o `readDynamoDbClient` (leitura de saldo, com orçamento curto e no máximo 1 retry). Contextos novos reutilizam um deles, sem criar outro cliente. O perfil de leitura falha na subida se `maxAttempts` passar de 2 ou se `maxAttempts × api-call-attempt > api-call`.
 
@@ -160,7 +161,7 @@ adapter ──▶ port ──▶ domain
   - O `hello` do template valida no service. Não replicar esse padrão nos contextos novos.
   - Invariantes técnicas do adapter usam `check(...)` ou `require(...)`.
 - **JSON no Kafka:** consumir como `String` (`StringDeserializer`) e desserializar com o `ObjectMapper` (Jackson 3) injetado do Spring.
-- **Imagens Docker** sempre com versão fixa (nunca `latest`).
+- **Imagens Docker** sempre com versão fixa e completa (ex.: `21.0.12_8`), nunca `latest` nem só a versão maior.
 - Sem Lombok nem geração de código. Kotlin idiomático.
 
 ### Testing Strategy
@@ -194,13 +195,14 @@ Gates e regras:
 - Relatório HTML: `build/reports/jacoco/test/html/index.html`.
 - Toda funcionalidade nova nasce de teste (TDD, ver *Working Rules*) e mantém o gate. Fluxos principais **e** corner cases (duplicata, fora de ordem, conta inexistente, dado inválido, dependência indisponível) precisam de teste. Adapters que tocam infra real devem ganhar teste de integração.
 
-### Observabilidade
+### Observabilidade e contêiner
 
 - **Logs:** JSON de uma linha no console, com `traceId` em todo log durante uma requisição HTTP ou um registro Kafka. O `traceId` vem do `traceparent` (W3C) do HTTP ou do header do registro, ou é gerado; a DLT preserva o header. A propagação é do Micrometer Tracing, e a observação do Kafka fica só no container de transações, com o `ObservationRegistry` explícito (sem ele a observação é um no-op silencioso).
 - **Dados sensíveis:** `owner` e payload nunca vão para log, nem nas mensagens de exceção; o `accountId` sai só com o primeiro grupo do UUID. Isso vale por construção, no `toString` de `OwnerId` e `AccountId`. Evento duplicado ou antigo é logado em `DEBUG`.
 - **Métricas** (Prometheus em `/actuator/prometheus`, só `health` e `prometheus` expostos, na porta de gerenciamento): `balance.transactions.processed{result=applied|stale_ignored|duplicate|dlq}`, o timer `spring.kafka.listener`, `kafka.consumer.fetch.manager.records.lag.max`, `resilience4j.circuitbreaker.*` dos circuitos `balance-storage` e `balance-storage-read`, e `http.server.requests`. Nenhuma tag leva identificador de conta, titular ou transação. O lag pode ficar defasado com as partições pausadas.
 - **Probes:** o `liveness` depende só do processo; o `readiness` só do estado da aplicação (recusa tráfego ao começar o encerramento) e **não** depende do DynamoDB nem do Kafka: as instâncias dividem a dependência, e verificá-la as tiraria todas do balanceador juntas.
-- **Testes:** no Boot 4 a instrumentação de métricas e a de tracing ficam desligadas nos testes sem `@AutoConfigureMetrics` e `@AutoConfigureTracing`. Os testes MockMvc do Actuator usam `management.server.port=` (vazio, mesma porta da API), e os testes com servidor de verdade usam `management.server.port=0`. O `README.md` (`ReadmeTest`: seções, ADRs e os alvos `make`, variáveis e classes de teste que ele cita) tem testes estáticos que rodam em `./gradlew check`.
+- **Contêiner:** processo como usuário não root (UID `10001`), `JAVA_TOOL_OPTIONS` sobrescrevível, `ENTRYPOINT` em forma exec (a JVM é o PID 1 e recebe o `SIGTERM`) e `stop_grace_period` maior que `spring.lifecycle.timeout-per-shutdown-phase`.
+- **Testes:** no Boot 4 a instrumentação de métricas e a de tracing ficam desligadas nos testes sem `@AutoConfigureMetrics` e `@AutoConfigureTracing`. Os testes MockMvc do Actuator usam `management.server.port=` (vazio, mesma porta da API), e os testes com servidor de verdade usam `management.server.port=0`. Os arquivos de infra (`Dockerfile`, `docker-compose.yml`, scripts) e o `README.md` (`ReadmeTest`: seções, ADRs e os alvos `make`, variáveis e classes de teste que ele cita) têm testes estáticos que rodam em `./gradlew check`.
 
 ### Git Workflow
 
@@ -243,7 +245,7 @@ Pré-requisito: Docker com Compose. `make` nativo em Linux/macOS; no Windows, us
 | `make kafka-up` | Sobe `redpanda` + `redpanda-seed` + `redpanda-console` |
 | `make kafka-seed` | Reexecuta o seed (republica as mensagens; tópicos são append-only) |
 | `make kafka-topic-create NAME=<t> [PARTITIONS=1]` | Cria tópico. **Auto-criação de tópicos está desligada.** |
-| `make kafka-topics-ingestion` | Cria, se não existirem, `transacoes-financeiras-processadas` e `transacoes-financeiras-processadas.DLT` com 6 partições, via `kafka-topic-create`; o `make integration-test` o executa |
+| `make kafka-topics-ingestion` | Cria, se não existirem, os tópicos de ingestão (6 partições) pelo `infra/redpanda/ingestion-topics.sh`, o mesmo script que o seed do compose roda; o `make integration-test` o executa |
 | `make kafka-produce-accounts-events TOPIC=<t> [COUNT=100]` | Publica eventos de conta aleatórios |
 | `make kafka-produce-transactions-events TOPIC=<t> [COUNT=100]` | Publica eventos de transação + conta aleatórios |
 | `make kafka-consume TOPIC=<t>` | Imprime as mensagens do tópico (timeout de 5s) |
@@ -331,9 +333,8 @@ A solução será avaliada por (lista do enunciado):
 - Manter a **arquitetura hexagonal** e fazer o teste de arquitetura cobrir os contextos novos.
 - Manter o **gate de cobertura ≥ 90%** (`./gradlew check`), senão o build e a CI quebram.
 - A stack deve subir apenas com Docker (`make up`). Imagens com versões fixas.
-- Não commitar segredos. As credenciais AWS vêm do ambiente (cadeia padrão do SDK): o Gradle define `local`/`local`, que valem só para o ambiente local, assim como o `endpointOverride` do DynamoDB.
+- Não commitar segredos. As credenciais AWS vêm do ambiente (cadeia padrão do SDK): o compose e o Gradle definem `local`/`local`, que valem só para o ambiente local, assim como o `endpointOverride` do DynamoDB.
 - Lacunas do template que o desafio exige tratar (ver *Non-Functional Requirements*):
-  - O serviço `app` no compose não espera os seeds terminarem (`depends_on` simples).
   - O exemplo usa `Scan` por request. Para consultas, preferir `GetItem`/`Query` por chave.
 
 ## External Dependencies

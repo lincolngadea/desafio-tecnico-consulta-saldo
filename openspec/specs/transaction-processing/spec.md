@@ -4,7 +4,7 @@
 Caso de uso que transforma uma transação processada em snapshot de saldo e o grava condicionalmente. Created by archiving change add-transaction-ingestion.
 ## Requirements
 ### Requirement: Transação processada vira snapshot de saldo
-O caso de uso `ProcessTransactionUseCase` MUST montar um `BalanceSnapshot` a partir da transação processada e gravá-lo por `BalanceRepository.saveIfNewer`, devolvendo o `SnapshotSaveResult` recebido. A versão do snapshot MUST ser formada pelo timestamp e pelo id da transação do evento. O serviço MUST tratar da mesma forma toda transação, aprovada ou recusada (`DECLINED`), porque todo evento já traz o saldo calculado pelo autorizador.
+O caso de uso `ProcessTransactionUseCase` MUST montar um `BalanceSnapshot` a partir da transação processada e gravá-lo por `BalanceRepository.saveIfNewer`, devolvendo o `SnapshotSaveResult` recebido (`Applied`, `StaleIgnored` ou `DuplicateIgnored`). A versão do snapshot MUST ser formada pelo timestamp e pelo id da transação do evento. O serviço MUST tratar da mesma forma toda transação, aprovada ou recusada (`DECLINED`), porque todo evento já traz o saldo calculado pelo autorizador.
 
 #### Scenario: Transação aprovada grava o snapshot
 - **WHEN** uma transação aprovada é processada
@@ -19,8 +19,12 @@ O caso de uso `ProcessTransactionUseCase` MUST montar um `BalanceSnapshot` a par
 - **THEN** o caso de uso devolve `Applied`
 
 #### Scenario: Resultado StaleIgnored é devolvido sem erro
-- **WHEN** o repositório responde `StaleIgnored` (evento duplicado ou fora de ordem)
+- **WHEN** o repositório responde `StaleIgnored` (evento fora de ordem)
 - **THEN** o caso de uso devolve `StaleIgnored` e não lança exceção
+
+#### Scenario: Resultado DuplicateIgnored é devolvido sem erro
+- **WHEN** o repositório responde `DuplicateIgnored` (o mesmo evento de novo)
+- **THEN** o caso de uso devolve `DuplicateIgnored` e não lança exceção
 
 #### Scenario: Falha do armazenamento não é engolida
 - **WHEN** o repositório lança `TransientStorageException`, `PermanentStorageException` ou `StorageUnavailableException`

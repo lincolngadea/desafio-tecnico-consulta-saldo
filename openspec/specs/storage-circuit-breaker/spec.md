@@ -4,7 +4,7 @@
 Circuit breaker em volta do repositório de saldo e o contrato de falha "indisponível". Created by archiving change add-transaction-ingestion.
 ## Requirements
 ### Requirement: Falhas transitórias do armazenamento abrem o circuito
-O `BalanceRepository` MUST ser envolvido por um circuit breaker. Somente `TransientStorageException` MUST contar como falha; `Applied`, `StaleIgnored` e `PermanentStorageException` MUST NOT contar. O circuito MUST abrir quando a taxa de falhas, na janela configurada, atingir o limiar configurado.
+O `BalanceRepository` MUST ser envolvido por um circuit breaker. Somente `TransientStorageException` MUST contar como falha; `Applied`, `StaleIgnored`, `DuplicateIgnored` e `PermanentStorageException` MUST NOT contar. O circuito MUST abrir quando a taxa de falhas, na janela configurada, atingir o limiar configurado.
 
 #### Scenario: Taxa de falhas acima do limiar abre o circuito
 - **WHEN** a taxa de `TransientStorageException` na janela atinge o limiar configurado
@@ -15,7 +15,7 @@ O `BalanceRepository` MUST ser envolvido por um circuit breaker. Somente `Transi
 - **THEN** o circuito continua fechado e cada chamada propaga a `PermanentStorageException`
 
 #### Scenario: Resultados esperados contam como sucesso
-- **WHEN** o repositório responde `Applied` ou `StaleIgnored`
+- **WHEN** o repositório responde `Applied`, `StaleIgnored` ou `DuplicateIgnored`
 - **THEN** o circuito continua fechado
 
 ### Requirement: Circuito aberto falha rápido com exceção do port
