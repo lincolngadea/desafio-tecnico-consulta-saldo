@@ -356,6 +356,24 @@ O JaCoCo exige **90% de cobertura de instruções**, e o `./gradlew check` falha
 
 Os testes que leem o repositório declaram documentos, OpenSpec, infraestrutura, HTTP e inventários de fontes (incluindo integração) como inputs do Gradle. Edições, criação, rename ou remoção invalidam a verificação; sem mudanças, `UP-TO-DATE` é esperado. No Docker, o estágio `test` recebe esses arquivos por `COPY` seletivo; builder e runtime ficam separados. Um build que reutiliza a camada de testes não é evidência de uma nova execução. Detalhes em [enforce-hexagonal-architecture design D4 e D5](openspec/changes/archive/2026-10-02-enforce-hexagonal-architecture/design.md).
 
+### Integração contínua
+
+Todo push e PR em `main` e `kotlin` dispara quatro workflows do GitHub Actions. O CodeQL também roda toda semana, por agendamento:
+
+| Workflow | O que roda |
+|-|-|
+| `build.yml` | `./gradlew assemble testClasses` |
+| `test.yml` | `./gradlew check` com o gate de cobertura e depois `./gradlew integrationTest` contra DynamoDB Local e Redpanda |
+| `docker.yml` | o build da imagem de runtime |
+| `codeql.yml` | a análise de segurança do CodeQL para `java-kotlin` |
+
+O CodeQL usa build manual, e não o `autobuild` do kit. Isso resolveu dois problemas, que apareceram um depois do outro:
+
+1. Na primeira execução no projeto Kotlin, o `autobuild` ficou mais de 2 horas parado no `compileKotlin`. O extrator Kotlin do CodeQL é single-threaded e trava a compilação feita no Kotlin daemon ou em paralelo.
+2. Com o build manual compilando dentro do processo do Gradle, a primeira execução não travou, mas falhou em poucos minutos: o heap padrão do Gradle, de 512 MiB, se esgotou com o extrator acoplado.
+
+O passo de build compila produção, testes e integração com o Kotlin em processo, um único worker e 4 GiB de heap. Essas configurações valem só no comando da análise, e o build local não muda. O job tem `timeout-minutes: 30`, para um travamento falhar em minutos, e não depois das 6 h padrão. O `CodeQlWorkflowTest` protege essa configuração no `check`. Detalhes em `fix-codeql-build` design D1 a D5.
+
 ## Resiliência e observabilidade
 
 ### O que existe
@@ -458,12 +476,13 @@ Cada mudança percorre o mesmo ciclo: **proposal** (por quê), **design** (decis
 | `add-observability` | Logs estruturados, `traceId`, métricas, probes e o contêiner |
 | `enforce-hexagonal-architecture` | Núcleo puro, composição externa, infraestrutura neutra e verificação Gradle/Docker |
 | `add-architecture-docs` | Este README e o `ReadmeTest` que o protege |
+| `fix-codeql-build` | O CodeQL voltou a concluir: build manual com Kotlin em processo, um worker, 4 GiB de heap e timeout no job |
 
 As regras de trabalho estão em [`CLAUDE.md`](CLAUDE.md), que funciona como uma constituição de qualidade de código: Clean Architecture, SOLID, Clean Code, DRY/KISS/YAGNI, design patterns e a regra de não reinventar a roda, comentários só no cabeçalho do arquivo, e a conformidade com o enunciado, validada item por item (ver a seção *O que será avaliado* do `enunciado.md`). Três regras moldam o histórico do git:
 
 - **TDD:** todo cenário das specs vira teste antes do código de produção.
 - **Revisão independente:** nenhuma implementação é commitada sem a revisão de outro agente, de contexto limpo e somente leitura, em até 3 rodadas.
-- **Um commit por change**, em Conventional Commits com a mensagem em português (`feat(balance): ...`), reunindo implementação, testes, specs, contexto motivado pela mudança e seu arquivo no OpenSpec. Alterações pendentes de outros escopos podem permanecer na árvore de trabalho e são separadas no stage.
+- **Um commit por change**, em Conventional Commits com a mensagem em português (`feat(balance): ...`), reunindo implementação, testes, specs, contexto motivado pela mudança e seu arquivo no OpenSpec. Alterações pendentes de outros escopos podem permanecer na árvore de trabalho e são separadas no stage. A única exceção é `fix-codeql-build`. A falta de heap só apareceu na execução real do primeiro commit, que já estava publicado. A correção do heap e a documentação no README vieram em commits seguintes, sem reescrever o histórico já publicado.
 
 O contexto completo do projeto está em [`openspec/project.md`](openspec/project.md).
 

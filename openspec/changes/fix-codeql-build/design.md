@@ -112,6 +112,10 @@ O commit `045170c` desta change já foi publicado na `kotlin` quando a execuçã
 
 O usuário escolheu o **segundo commit**, para não reescrever o histórico de uma branch publicada. É uma exceção explícita à regra, válida só para esta change.
 
+Depois que o CodeQL passou, o usuário pediu para documentar a correção no README e publicá-la. Com isso, a change ganhou um terceiro commit, só de documentação, pelo mesmo motivo: não reescrever o histórico publicado.
+
+O archive não entra nessa exceção. Ele segue o padrão do projeto, de um commit próprio `docs(openspec): arquiva ...` (`76bd587`, `f86901e`, `731c7a9`, `f040668`). Nesse commit, a referência em texto `fix-codeql-build` design D1 a D5 do README vira link para o `design.md` arquivado, como nas outras changes.
+
 ## Conformidade, padrões e coerência
 
 - **Art. 1 (Clean Architecture):** nenhuma camada de produção é tocada. Não há port, value object ou adapter envolvido.
