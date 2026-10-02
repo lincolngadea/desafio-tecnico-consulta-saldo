@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-02",
+  "scope": "workspace including pre-existing infrastructure, excluded from docs commit",
+  "hostCheck": {
+    "tests": 374,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "instructionCoveragePercent": 95.3,
+    "testExecuted": true
+  },
+  "dockerMakeTest": {
+    "testStageRunCached": false,
+    "tests": 374,
+    "instructionCoveragePercent": 95.3,
+    "baseCacheReused": true
+  },
+  "integration": {
+    "tests": 61,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "integrationTestExecuted": true
+  },
+  "smoke": [
+    {
+      "case": "literal-payload-and-response"
+    },
+    {
+      "case": "duplicate-and-out-of-order",
+      "unchanged": true,
+      "duplicateDelta": 1.0,
+      "staleDelta": 1.0
+    },
+    {
+      "case": "declined-with-newer-snapshot"
+    },
+    {
+      "case": "http-400"
+    },
+    {
+      "case": "http-404"
+    },
+    {
+      "case": "hello",
+      "missingName": 400
+    },
+    {
+      "case": "openapi-and-swagger",
+      "responses": [
+        "200",
+        "400",
+        "404",
+        "503",
+        "500"
+      ],
+      "uuidPath": true,
+      "htmlAndBundle": true
+    },
+    {
+      "case": "probes-and-metrics",
+      "management": 8082,
+      "apiActuator": 404,
+      "metricFamilies": true
+    },
+    {
+      "case": "documented-topic-and-50-events",
+      "topicExit": 2,
+      "appliedDelta": 50.0
+    },
+    {
+      "case": "real-dynamodb-outage",
+      "http": 503,
+      "retryAfter": "5",
+      "elapsedSeconds": 0.6633041249999998,
+      "probesRemainUp": true
+    },
+    {
+      "case": "restored-with-existing-data",
+      "balance": 211.45
+    }
+  ],
+  "limits": [
+    "No load benchmark or DNS blackhole",
+    "No visual Swagger or Console UI verification",
+    "No publication or email",
+    "Gates verify workspace, not excluded infrastructure in a clean checkout"
+  ]
+}

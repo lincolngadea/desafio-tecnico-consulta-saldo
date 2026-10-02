@@ -1,24 +1,4 @@
-# itau-code-challange-starter-kit
-
-[![Build](../../actions/workflows/build.yml/badge.svg)](../../actions/workflows/build.yml)
-[![Test & Coverage](../../actions/workflows/test.yml/badge.svg)](../../actions/workflows/test.yml)
-[![Docker](../../actions/workflows/docker.yml/badge.svg)](../../actions/workflows/docker.yml)
-[![CodeQL](../../actions/workflows/codeql.yml/badge.svg)](../../actions/workflows/codeql.yml)
-
-> ## Instruções para o candidato
->
-> Este repositório é um **template utilizado em processo seletivo de vaga para Engenheiro(a) de Software**. Ele **não** é o desafio em si — é o ponto de partida.
->
-> Para participar do processo:
->
-> 1. Clique no botão verde **"Use this template"** no topo desta página e em **"Create a new repository"** para criar o seu próprio repositório a partir deste template (não faça um fork). Marque a opção **"Include all branches"** para trazer todas as branches disponíveis.
-> 2. Escolha a branch com a stack de sua preferência — `kotlin` ou `java`. Após criar o repositório, clone-o e rode `git checkout <branch-escolhida>` (ex.: `git checkout kotlin`). Para evitar confusão, considere apagar a outra branch e definir a escolhida como padrão em Settings → Branches.
-> 3. Mantenha o repositório criado **público** — o time responsável pelo processo seletivo precisa conseguir acessá-lo para avaliar a sua solução.
-> 4. Implemente a solução de acordo com a **especificação enviada a você** pelo time responsável pelo processo seletivo.
-> 5. Utilize a arquitetura, os padrões e a infraestrutura já configurados aqui como base — sinta-se à vontade para estendê-los conforme a especificação exigir.
-> 6. Ao finalizar, siga as instruções de entrega informadas junto com a especificação recebida.
->
-> O restante deste documento descreve o que já está pronto no template (stack, arquitetura, infraestrutura local e comandos disponíveis).
+# Consulta de saldo — desafio técnico Itaú
 
 > ## Aviso sobre os comentários no código
 >
@@ -34,171 +14,199 @@
 
 ## Sumário
 
-- [Stack](#stack)
-- [Arquitetura](#arquitetura)
-- [Estrutura de pastas](#estrutura-de-pastas)
-- [Endpoints da API](#endpoints-da-api)
-- [Mensageria Kafka](#mensageria-kafka)
-- [Imagens Docker utilizadas](#imagens-docker-utilizadas)
-- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Visão da solução](#visão-da-solução)
 - [Como rodar](#como-rodar)
+- [Decisões de arquitetura](#decisões-de-arquitetura)
+- [Estratégia de testes](#estratégia-de-testes)
+- [Resiliência e observabilidade](#resiliência-e-observabilidade)
+- [O que eu faria com mais tempo](#o-que-eu-faria-com-mais-tempo)
+- [Como o repositório foi construído](#como-o-repositório-foi-construído)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
 - [Comandos do Makefile](#comandos-do-makefile)
-- [Testes](#testes)
-- [Cobertura de testes](#cobertura-de-testes)
 
-## Stack
+## Visão da solução
+
+O serviço ingere do Kafka (tópico `transacoes-financeiras-processadas`) as transações já processadas pelo autorizador, guarda no DynamoDB o snapshot de saldo mais recente de cada conta e o expõe em `GET /balances/{accountId}`. O saldo já vem pronto no evento, então o serviço não recalcula nada: o que ele decide é qual evento é o mais recente (maior `transaction.timestamp`, com desempate pelo maior id), por uma escrita condicional atômica que torna a ingestão idempotente e imune à ordem de chegada. Durante falhas transitórias da dependência, o consumer pausa e o Kafka guarda o backlog dentro da retenção configurada; a leitura é fortemente consistente e nunca vem de cache. Essa leitura reflete o último snapshot persistido, ainda sujeito ao atraso da ingestão.
+
+### Fluxo
+
+```mermaid
+flowchart LR
+    kafka(["Kafka<br/>transacoes-financeiras-processadas"])
+    dlt(["Kafka<br/>transacoes-financeiras-processadas.DLT"])
+    table[("DynamoDB<br/>um item por conta")]
+    http(["HTTP<br/>GET /balances/{accountId}"])
+
+    kafka --> listener[TransactionEventListener]
+    listener --> mapper[TransactionEventMapper]
+    mapper --> processUseCase[ProcessTransactionUseCase]
+    processUseCase --> processService[ProcessTransactionService]
+    processService --> repositoryPort[BalanceRepository]
+    repositoryPort --> writerBreaker[CircuitBreakerBalanceRepository]
+    writerBreaker --> writer[DynamoDbBalanceWriter]
+    writer -->|"escrita condicional"| table
+    listener -->|"falha"| errorHandler[IngestionErrorHandlerFactory]
+    errorHandler --> recoverer[IngestionRecoverer]
+    recoverer -->|"erro permanente"| dlt
+    recoverer -->|"dependência indisponível"| pause[ListenerPause]
+
+    http --> controller[BalanceController]
+    controller --> getUseCase[GetBalanceUseCase]
+    getUseCase --> getService[GetBalanceService]
+    getService --> providerPort[BalanceProvider]
+    providerPort --> readerBreaker[CircuitBreakerBalanceProvider]
+    readerBreaker --> reader[DynamoDbBalanceProvider]
+    reader -->|"leitura fortemente consistente"| table
+```
+
+### Arquitetura hexagonal
+
+O núcleo (`domain`, `port` e `application`) não conhece framework, banco nem broker. Todo contato com o mundo externo passa por *ports* (interfaces) implementados por *adapters*, e a dependência aponta sempre para dentro: `adapter → port ← application → domain`. Adapters acessam casos de uso pelos ports de entrada e modelos do domínio, sem importar `application` ou a configuração. Os services são Kotlin puro; o Spring os registra externamente em `BalanceUseCaseConfiguration` e `HelloUseCaseConfiguration`. A configuração compartilhada de clientes fica em `infrastructure.dynamodb`, fora dos contextos de negócio. As setas abaixo indicam "depende de"; as linhas tracejadas mostram a composição externa.
+
+```mermaid
+flowchart LR
+    subgraph adapterIn["adapter/input"]
+        listener[TransactionEventListener]
+        controller[BalanceController]
+    end
+    subgraph nucleus["núcleo, sem framework"]
+        subgraph portIn["port/input"]
+            processUseCase[ProcessTransactionUseCase]
+            getUseCase[GetBalanceUseCase]
+        end
+        subgraph app["application"]
+            processService[ProcessTransactionService]
+            getService[GetBalanceService]
+        end
+        subgraph portOut["port/output"]
+            repositoryPort[BalanceRepository]
+            providerPort[BalanceProvider]
+        end
+        domainModel["domain<br/>BalanceSnapshot, SnapshotVersion, Money"]
+    end
+    subgraph adapterOut["adapter/output"]
+        writerBreaker[CircuitBreakerBalanceRepository]
+        readerBreaker[CircuitBreakerBalanceProvider]
+        writer[DynamoDbBalanceWriter]
+        reader[DynamoDbBalanceProvider]
+    end
+
+    composition["configuration<br/>BalanceUseCaseConfiguration"]
+    dynamoConfig["infrastructure.dynamodb<br/>DynamoDbConfig, DynamoDbProperties"]
+    composition -.-> processService
+    composition -.-> getService
+
+    listener --> processUseCase
+    controller --> getUseCase
+    processService --> processUseCase
+    processService --> repositoryPort
+    getService --> getUseCase
+    getService --> providerPort
+    writerBreaker --> repositoryPort
+    writer --> repositoryPort
+    readerBreaker --> providerPort
+    reader --> providerPort
+    processService --> domainModel
+    repositoryPort --> domainModel
+```
+
+A política compartilhada pelos testes arquiteturais (incluindo `HexagonalArchitectureTest`, com [Konsist](https://github.com/LemonAppDev/konsist) e PSI Kotlin) descobre automaticamente os contextos pelas camadas dos fontes, inclusive contextos parciais: hoje `hello` e `balance`, sem lista manual. Ela rejeita frameworks em `domain`, `port` e `application`, dependência de núcleo de outro contexto, `adapter → application/configuration` e `application → adapter/configuration`, incluindo aliases e referências qualificadas. Infraestrutura e composição externas não são contextos de negócio; um escopo vazio falha. Detalhes em [enforce-hexagonal-architecture design D1, D2 e D3](openspec/changes/archive/2026-10-02-enforce-hexagonal-architecture/design.md).
+
+### Stack
 
 | Categoria | Tecnologia |
 |-|-|
 | Linguagem | Kotlin 2.3.21 |
 | Runtime | Java 21 (Eclipse Temurin) |
-| Framework | Spring Boot 4.1.0 (Spring Framework 7) |
+| Framework | Spring Boot 4.1.0 (Spring Framework 7), Spring MVC |
 | Build | Gradle 9.5.1 (Kotlin DSL) |
-| Web | Spring MVC (`spring-boot-starter-webmvc`) |
 | Serialização JSON | Jackson 3 (`tools.jackson`, incluindo módulo Kotlin) |
-| Banco de dados | Amazon DynamoDB (via AWS SDK for Java v2) |
-| Mensageria | Kafka (protocolo) via Spring Kafka, broker real = Redpanda |
-| Testes | JUnit 5, Mockito, Konsist (teste de arquitetura), MockMvc |
+| Banco de dados | Amazon DynamoDB (AWS SDK for Java v2) |
+| Mensageria | Kafka (protocolo) via Spring Kafka; broker real = Redpanda |
+| Resiliência | Resilience4j 2.4.0 (circuit breaker), `ExponentialBackOff` do Spring Framework no error handler do Spring Kafka |
+| Observabilidade | Actuator, Micrometer (Prometheus), Micrometer Tracing com a ponte OpenTelemetry, log JSON nativo do Boot |
+| Documentação da API | springdoc-openapi 3.1.1 (Swagger UI gerada do código) |
+| Testes | JUnit, Konsist, MockMvc, kotlinx-coroutines (teste de concorrência), fakes escritos à mão para os *ports* |
 | Cobertura | JaCoCo (gate mínimo de 90% de instruções) |
 | Containers | Docker + Docker Compose |
 
-## Arquitetura
+O contexto `hello` (`GET /hello`, tópico `greeting-templates`, tabela `GreetingMessages`) é o exemplo que veio com o starter kit. Ele continua no repositório e não faz parte da solução, por isso não é documentado aqui.
 
-O projeto segue **arquitetura hexagonal**: o núcleo do negócio (domínio) não depende de nenhum framework, banco de dados ou broker de mensagens. Toda comunicação com o mundo externo passa por **portas** (interfaces) implementadas por **adaptadores**. A regra de dependência é sempre unidirecional, em direção ao domínio.
+### Mapa do critério *O que será avaliado* do enunciado
 
-```mermaid
-graph TD
-    Adapter["adapter<br/>(input/web, input/kafka, output/dynamodb)"]
-    Application["application<br/>(casos de uso)"]
-    Port["port<br/>(input/output — contratos)"]
-    Domain["domain<br/>(modelos e exceções)"]
+| Critério do enunciado | Onde está |
+|-|-|
+| Modelagem de dados no DynamoDB | `ADR-2` |
+| Tratamento de concorrência | `ADR-3`, `ADR-4` e o teste de concorrência em *Estratégia de testes* |
+| Resiliência | `ADR-5`, `ADR-6` e *Resiliência e observabilidade* |
+| Testes | *Estratégia de testes* |
+| Qualidade de código e arquitetura hexagonal | os diagramas acima, o `HexagonalArchitectureTest` e *Como o repositório foi construído* |
+| Tratamento de cenários adversos (API) | tabela de status em *Como rodar*, `ADR-5`, `ADR-6` e `ADR-7` |
+| Production readiness | *Resiliência e observabilidade* |
+| Pattern ou algoritmo não implementado, com os motivadores | *O que eu faria com mais tempo* |
 
-    Adapter --> Port
-    Adapter --> Domain
-    Application --> Port
-    Application --> Domain
-    Port --> Domain
+## Como rodar
+
+**Pré-requisitos:**
+
+- **Docker** com Docker Compose. É o único necessário para subir o ambiente e rodar `make test`.
+- **make**, que já vem em Linux e macOS. No Windows, use o **WSL2**: o Makefile depende de utilitários estilo Unix e não roda direto no PowerShell nem no cmd.
+- **JDK 21** só para `make integration-test` e para rodar a aplicação pela IDE (o Gradle baixa o toolchain se faltar).
+
+### 1. Subir o ambiente
+
+```bash
+make up      # app + DynamoDB Local + Redpanda; os seeds criam as tabelas e os tópicos
+make logs    # acompanha os logs da aplicação
 ```
 
-*As setas indicam "depende de" — sempre apontando em direção ao domínio.*
+A aplicação só inicia depois que os dois seeds terminam com sucesso, e o `healthcheck` do serviço `app` espera o `readiness` responder. O `make up` demora mais na primeira vez, porque o Docker baixa as imagens.
 
-Essa regra é validada automaticamente por um **teste de arquitetura** (`HexagonalArchitectureTest`, usando a lib [Konsist](https://github.com/LemonAppDev/konsist)), que quebra o build caso alguma camada viole a direção de dependência esperada — por exemplo, se `domain` importar algo do Spring, ou se `application` importar um `adapter` diretamente.
+### 2. Criar o tópico
 
-### Camadas
+O seed do `make up` já cria o tópico `transacoes-financeiras-processadas` e a DLT `transacoes-financeiras-processadas.DLT`, com 6 partições cada (`infra/redpanda/ingestion-topics.sh`, idempotente). A criação automática de tópicos está desligada, então criar um tópico é sempre uma ação explícita. O comando do enunciado, que cria um tópico avulso, é útil para outros tópicos ou para um ambiente subido sem o seed:
 
-#### 1. `domain` — núcleo do negócio
-Modelos e exceções de domínio, sem nenhuma dependência externa (nem Spring).
-
-- `domain/model/Greeting.kt` — a saudação já renderizada, pronta para resposta.
-- `domain/model/GreetingTemplate.kt` — um template de saudação (`id` + `template` com placeholder `%s`).
-- `domain/exception/BlankRequesterNameException.kt` — nome do solicitante em branco.
-- `domain/exception/InvalidGreetingTemplateException.kt` — template inválido (id ou texto em branco).
-
-#### 2. `port` — contratos do hexágono
-Interfaces que definem a borda entre o núcleo e o mundo externo.
-
-- **`port/input`** (portas de entrada / *driving*) — o que a aplicação **oferece**:
-  - `GetGreetingUseCase` — obter uma saudação para um nome.
-  - `SaveGreetingTemplateUseCase` — persistir um novo template de saudação.
-- **`port/output`** (portas de saída / *driven*) — o que a aplicação **precisa**:
-  - `GreetingTemplateProvider` — obter um template aleatório.
-  - `GreetingTemplateRepository` — salvar um template.
-
-#### 3. `application` — casos de uso
-Implementa os *input ports*, orquestrando regras de negócio usando apenas `domain` e `port` (nunca conhece detalhes de HTTP, Kafka ou DynamoDB).
-
-- `GreetingService` — valida o nome (não pode ser vazio/branco), pede um template aleatório e monta a saudação final.
-- `SaveGreetingTemplateService` — valida `id`/`template` (não podem ser vazios/brancos) e delega a persistência ao repositório.
-
-#### 4. `adapter` — integrações com o mundo externo
-Implementações concretas das portas, organizadas por tecnologia. Cada adaptador é isolado — trocar um por outro não exige alterar `domain` nem `application`.
-
-- **`adapter/input/web`** (*driving adapter*, HTTP):
-  - `GreetingController` — expõe `GET /hello`, sempre responde em JSON.
-- **`adapter/input/kafka`** (*driving adapter*, mensageria):
-  - `GreetingTemplateConsumer` — `@KafkaListener` que consome o tópico `greeting-templates`, desserializa a mensagem (usando o `ObjectMapper` Jackson 3 da própria aplicação) e chama `SaveGreetingTemplateUseCase`.
-- **`adapter/output/dynamodb`** (*driven adapter*, persistência):
-  - `DynamoDbGreetingTemplateProvider` — implementa `GreetingTemplateProvider` (faz `Scan` na tabela e escolhe um template aleatório).
-  - `DynamoDbGreetingTemplateWriter` — implementa `GreetingTemplateRepository` (faz `PutItem`).
-  - `DynamoDbConfig` — configura o `DynamoDbClient` (endpoint, região, credenciais locais).
-
-### Fluxo de dados
-
-```mermaid
-flowchart LR
-    Kafka(["Kafka / Redpanda<br/>tópico greeting-templates"]) --> Consumer[GreetingTemplateConsumer]
-    Consumer --> SaveUC[SaveGreetingTemplateUseCase]
-    SaveUC --> Writer[DynamoDbGreetingTemplateWriter]
-    Writer --> DB[("DynamoDB<br/>GreetingMessages")]
-
-    HTTP(["HTTP GET /hello"]) --> Controller[GreetingController]
-    Controller --> GetUC[GetGreetingUseCase]
-    GetUC --> Provider[DynamoDbGreetingTemplateProvider]
-    Provider --> DB
+```bash
+make kafka-topic-create NAME=transacoes-financeiras-processadas
 ```
 
-Ou seja: novos templates chegam via Kafka e são persistidos no DynamoDB; o endpoint HTTP lê aleatoriamente qualquer template já persistido (seja o seed inicial ou os que vieram via Kafka) e devolve a saudação renderizada.
+Ele cria o tópico com 1 partição; use `PARTITIONS=6` para igualar o seed (o seed lê `INGESTION_PARTITIONS`, padrão `6`). Com o ambiente já no ar, o tópico existe, e o `rpk` responde `TOPIC_ALREADY_EXISTS`: é esperado e não muda nada. O `make kafka-topics-ingestion` cria o tópico e a DLT com 6 partições cada, só os que ainda não existirem.
 
-## Estrutura de pastas
+### 3. Gerar eventos
 
-```
-src/main/kotlin/br/com/itau/challenge/
-├── Application.kt                          # bootstrap Spring Boot
-└── hello/
-    ├── domain/                             # modelos e exceções de domínio
-    ├── port/{input,output}/                # contratos (interfaces)
-    ├── application/                        # casos de uso
-    └── adapter/
-        ├── input/{web,kafka}/              # driving adapters
-        └── output/dynamodb/                # driven adapters
-
-src/test/kotlin/                            # testes unitários (sem infra externa)
-src/integrationTest/kotlin/                 # testes de integração (infra real via Docker)
-
-infra/                                       # seeds de infraestrutura local (Docker Compose)
-├── dynamodb/                               # script + dados de seed do DynamoDB
-└── redpanda/                               # script + dados de seed do tópico Kafka
-
-http/                                       # arquivos .http para chamar a API manualmente
+```bash
+make kafka-produce-transactions-events TOPIC=transacoes-financeiras-processadas COUNT=50
 ```
 
-## Endpoints da API
+O gerador cria uma conta aleatória por evento (`account.id` novo a cada mensagem), então nenhuma conta recebe um segundo evento: ele **não demonstra duplicado nem fora de ordem**. Para ver esses dois casos, publique à mão no Redpanda Console (http://localhost:8081 → tópico → *Produce Message*) o payload de exemplo do enunciado:
 
-### `GET /hello`
-
-Retorna uma saudação aleatória para o nome informado. **Sempre responde em JSON**, inclusive em erros.
-
-| Parâmetro | Obrigatório | Descrição |
-|-|-|-|
-| `name` | Sim | Nome do solicitante (não pode ser vazio/branco) |
-
-**Sucesso:**
-```
-GET /hello?name=Ada
-200 OK
-{"message": "Hello, Ada!"}
+```json
+{"transaction":{"id":"8e8ae808-b154-48b5-9f3e-553935cc4543","type":"CREDIT","amount":97.07,"currency":"BRL","status":"APPROVED","timestamp":1751641364589998},"account":{"id":"5b19c8b6-0cc4-4c72-a989-0c2ee15fa975","owner":"315e3cfe-f4af-4cd2-b298-a449e614349a","created_at":1634874339000000,"status":"ENABLED","balance":{"amount":183.12,"currency":"BRL"}}}
 ```
 
-**Erro:** `name` ausente responde `400` em `application/problem+json`, no mesmo formato de erro da consulta de saldo (ver abaixo). `name` em branco continua sendo uma exceção de domínio do kit, que responde `500` (também em `problem+json`); tratá-la está fora do escopo da consulta de saldo.
+- **Duplicado:** publique o mesmo payload de novo. O saldo não muda e a métrica `balance_transactions_processed_total{result="duplicate"}` sobe.
+- **Fora de ordem:** publique o mesmo payload com outro `transaction.id`, `balance.amount` diferente e um `transaction.timestamp` **menor** (por exemplo `1751641364589000`). O saldo continua o do evento de timestamp maior e a métrica `stale_ignored` sobe.
 
-Exemplos prontos em [`http/hello.http`](http/hello.http) (execute com a extensão REST Client do VS Code, o cliente HTTP do IntelliJ, ou via `make http`).
+### 4. Consultar a API
 
-### `GET /balances/{accountId}`
-
-Devolve o saldo mais atual da conta. `accountId` é um UUID na forma canônica (maiúsculo ou minúsculo).
+```bash
+curl -i http://localhost:8080/balances/5b19c8b6-0cc4-4c72-a989-0c2ee15fa975
+```
 
 ```
-GET /balances/5b19c8b6-0cc4-4c72-a989-0c2ee15fa975
-200 OK
+HTTP/1.1 200
+Cache-Control: no-store
+Content-Type: application/json
+
 {
   "id": "5b19c8b6-0cc4-4c72-a989-0c2ee15fa975",
   "owner": "315e3cfe-f4af-4cd2-b298-a449e614349a",
   "balance": {"amount": 183.12, "currency": "BRL"},
-  "updated_at": "2025-07-05T18:04:13.433-03:00"
+  "updated_at": "2025-07-04T12:02:44.589-03:00"
 }
 ```
 
-`updated_at` é o `transaction.timestamp` do evento que gerou o saldo, em milissegundos e no fuso `America/Sao_Paulo`.
+`updated_at` é o `transaction.timestamp` do evento que gerou o saldo, em milissegundos e no fuso `America/Sao_Paulo`. `accountId` é um UUID na forma canônica, em maiúsculas ou minúsculas.
 
 | Status | Quando | Observação |
 |-|-|-|
@@ -208,70 +216,256 @@ GET /balances/5b19c8b6-0cc4-4c72-a989-0c2ee15fa975
 | `503` | DynamoDB indisponível ou circuito aberto | cabeçalho `Retry-After` (segundos) |
 | `500` | Falha inesperada | sem detalhe interno no corpo |
 
-Todo erro da aplicação é `application/problem+json` (RFC 9457), com `status`, `title`, `detail`, `instance` e `traceId`. O `traceId` é o `trace-id` do cabeçalho `traceparent` (W3C Trace Context), quando válido, ou um id novo; ele também aparece em todo log da requisição.
+Todo erro é `application/problem+json` (RFC 9457), com `status`, `title`, `detail`, `instance` e `traceId`. O `traceId` é o `trace-id` do cabeçalho `traceparent` (W3C Trace Context), quando válido, ou um id novo; ele também aparece em todo log da requisição. Toda resposta de `/balances/**`, de sucesso ou de erro, traz `Cache-Control: no-store`.
 
-**Sem cache de saldo:** o requisito é o saldo mais atual, e a leitura já é fortemente consistente. Toda resposta de `/balances/**` traz `Cache-Control: no-store`. A justificativa completa está no `design.md` da change `add-balance-query-api`.
+### Endereços
 
-**Leitura resiliente:** a leitura usa um cliente DynamoDB próprio, com timeouts curtos e no máximo 1 retry (pior caso: 800 ms), e um circuit breaker de leitura separado do da escrita.
+| Serviço | URL |
+|-|-|
+| API | http://localhost:8080 |
+| Swagger UI (gerada do código) | http://localhost:8080/swagger-ui.html |
+| Especificação OpenAPI | http://localhost:8080/v3/api-docs |
+| Gerenciamento (probes e métricas) | http://localhost:8082/actuator/health/readiness |
+| DynamoDB Admin (tabela `AccountBalances`) | http://localhost:8001 |
+| Redpanda Console | http://localhost:8081 |
 
-**Documentação interativa (gerada do código):** Swagger UI em <http://localhost:8080/swagger-ui.html> e especificação OpenAPI em <http://localhost:8080/v3/api-docs>.
-
-## Mensageria Kafka
-
-### Tópico `greeting-templates` (entrada)
-
-Novos templates de saudação entram pelo Kafka, não por HTTP: `GreetingTemplateConsumer` escuta o tópico `greeting-templates` e persiste cada mensagem recebida via `SaveGreetingTemplateUseCase`.
-
-**Schema da mensagem (JSON):**
-```json
-{"id": "k1", "template": "Yo %s! Great to have you online!"}
-```
-
-| Campo | Obrigatório | Descrição |
-|-|-|-|
-| `id` | Sim | Identificador do template (não pode ser vazio/branco) |
-| `template` | Sim | Texto do template, com `%s` como placeholder para o nome (não pode ser vazio/branco) |
-
-**Como publicar uma mensagem de teste:**
-- Pelo Redpanda Console (http://localhost:8081) → tópico `greeting-templates` → *Produce Message*.
-- Via `rpk`: `docker compose run --rm --entrypoint rpk redpanda-seed topic produce greeting-templates --brokers redpanda:9092`.
-- Via `make kafka-seed`: roda novamente o job de seed, republicando as mensagens de [`infra/redpanda/greeting-templates-seed.jsonl`](infra/redpanda/greeting-templates-seed.jsonl) no tópico.
-- Exemplos prontos em [`infra/redpanda/greeting-templates-seed.jsonl`](infra/redpanda/greeting-templates-seed.jsonl) — os mesmos usados no seed inicial.
-
-### Tópico `transacoes-financeiras-processadas` (entrada)
-
-`TransactionEventListener` consome as transações processadas pelo autorizador e chama `ProcessTransactionUseCase`, que grava o snapshot de saldo mais recente de cada conta. O payload é o do enunciado (`.challenge/enunciado.md`).
-
-**Criação dos tópicos** (a criação automática está desligada; o tópico e a DLT têm 6 partições, justificadas no `design.md` da change `add-transaction-ingestion`):
-```bash
-make kafka-topic-create NAME=transacoes-financeiras-processadas PARTITIONS=6
-make kafka-topic-create NAME=transacoes-financeiras-processadas.DLT PARTITIONS=6
-```
-
-**Como o consumer se comporta:**
-- **At-least-once:** o offset só é confirmado depois da gravação. Um evento reentregue resulta em `StaleIgnored`, sem alterar o snapshot.
-- **Erro permanente** (JSON inválido, campo inválido, falha permanente do armazenamento): vai para a DLT `transacoes-financeiras-processadas.DLT`, com os headers do motivo (`kafka_dlt-exception-cause-fqcn`, `kafka_dlt-exception-message`, tópico, partição e offset de origem), e o offset é confirmado.
-- **Erro transitório:** nova tentativa com backoff exponencial e jitter, até `INGESTION_MAX_RETRIES` vezes. Nunca vai para a DLT.
-- **Armazenamento indisponível** (circuito aberto ou tentativas esgotadas): o consumer pausa as partições por `INGESTION_PAUSE_DURATION`, sem perder nem confirmar o registro, e retoma de onde parou; o primeiro registro reentregue é a sonda do circuito.
-- **Reprocessar a DLT:** republique o payload no tópico de origem; é seguro porque a gravação é idempotente. Não há reprocessamento automático.
-
-**Como gerar eventos de teste:** `make kafka-produce-transactions-events TOPIC=transacoes-financeiras-processadas COUNT=50`.
-
-## Imagens Docker utilizadas
+### Imagens Docker
 
 | Serviço | Imagem | Finalidade |
 |-|-|-|
-| `app` | build local (`eclipse-temurin:21-jdk` → `eclipse-temurin:21-jre`) | a própria aplicação |
+| `app` | build local (`eclipse-temurin:21.0.12_8-jdk-noble` → `eclipse-temurin:21.0.12_8-jre-noble`) | a própria aplicação |
 | `dynamodb` | `amazon/dynamodb-local:3.3.0` | DynamoDB local (modo in-memory) |
-| `dynamodb-seed` | `amazon/aws-cli:2.36.8` | cria a tabela e popula os dados iniciais |
-| `dynamodb-admin` | `aaronshaf/dynamodb-admin:5.3.4` | console web para inspecionar a tabela |
-| `redpanda` | `docker.redpanda.com/redpandadata/redpanda:v26.1.14` | broker Kafka-compatível (modo KRaft, single-node) |
-| `redpanda-seed` | `docker.redpanda.com/redpandadata/redpanda:v26.1.14` | aplica a config do cluster (`config.sh`), depois cria o tópico e publica mensagens iniciais (`seed.sh`), usando `rpk` |
-| `redpanda-console` | `docker.redpanda.com/redpandadata/console:v3.9.0` | console web para inspecionar tópicos/mensagens |
+| `dynamodb-seed` | `amazon/aws-cli:2.36.8` | cria as tabelas e popula os dados iniciais |
+| `dynamodb-admin` | `aaronshaf/dynamodb-admin:5.3.4` | console web para inspecionar as tabelas |
+| `redpanda` | `docker.redpanda.com/redpandadata/redpanda:v26.1.14` | broker Kafka-compatível (single-node) |
+| `redpanda-seed` | `docker.redpanda.com/redpandadata/redpanda:v26.1.14` | aplica a config do cluster (`config.sh`), cria os tópicos e publica as mensagens iniciais, usando `rpk` |
+| `redpanda-console` | `docker.redpanda.com/redpandadata/console:v3.9.0` | console web para inspecionar tópicos e mensagens |
 
-> Todas as imagens usam versões fixas (nunca `latest`) para builds reprodutíveis.
+Todas as imagens usam versões fixas, nunca `latest`, para builds reprodutíveis. O Redpanda substitui o Apache Kafka no ambiente local por ser um binário único em C++ (sem JVM e sem ZooKeeper), com suporte ao protocolo Kafka: a aplicação usa `spring-kafka` sem nenhum código específico dele.
 
-> **Por que Redpanda em vez do Apache Kafka?** É um binário único em C++ (sem JVM, sem ZooKeeper), com startup quase instantâneo — mais leve para ambiente local, mantendo 100% de compatibilidade com o protocolo Kafka (a aplicação usa `spring-kafka` normalmente, sem nenhum código específico do Redpanda).
+### Loop de desenvolvimento rápido (rodando pela IDE)
+
+Para depurar com breakpoints e sem reconstruir a imagem a cada mudança, suba só a infraestrutura e rode a aplicação pela IDE:
+
+```bash
+make db-up       # DynamoDB Local + console web
+make kafka-up    # Redpanda + console web
+```
+
+Esses comandos retornam quando os containers **sobem**, não quando os seeds **terminam**: espere alguns segundos antes de rodar `Application.kt` (ou `./gradlew bootRun`). Os valores padrão do `application.yaml` (`localhost:8000` e `localhost:19092`) já apontam para essas portas.
+
+### Solução de problemas
+
+- **Primeiro `make up` demorando:** o Docker baixa as imagens do compose e as imagens base do build. Acompanhe com `make logs`; só desconfie se não houver progresso por vários minutos.
+- **Erro `port is already allocated` ou `address already in use`:** a stack ocupa `8080` (API), `8082` (gerenciamento), `8000` e `8001` (DynamoDB), `8081` (Redpanda Console) e `19092` (Redpanda). Libere a porta em conflito ou pare a outra stack.
+- **Algo travado ou inconsistente:** `make clean-containers` remove todos os containers do projeto, incluindo órfãos, para recomeçar do zero.
+
+## Decisões de arquitetura
+
+Cada decisão está em formato de ADR curto: **Contexto**, **Decisão** e **Consequência**. A discussão completa, com as alternativas descartadas e os riscos, está no `design.md` da change citada em **Detalhe**.
+
+### ADR-1. Snapshot por conta em vez de recalcular o saldo
+
+- **Contexto:** Cada evento do autorizador, aprovado ou rejeitado, já traz o saldo atual da conta (`account.balance`). O desafio pede o saldo mais recente, não o extrato.
+- **Decisão:** Guardar um item por conta com o último snapshot, e nunca recalcular: o saldo do evento é mantido como veio, inclusive o de um evento `DECLINED`, que só avança `updated_at`. "Mais recente" é o maior `transaction.timestamp` (em µs), não a ordem de chegada, e `updated_at` é o `transaction.timestamp` do evento que gerou o snapshot, não o instante da gravação. Uma tabela de histórico (um item por evento) foi descartada.
+- **Consequência:** A leitura é O(1) e a tabela cresce com o número de contas, não com o de eventos. Sem histórico, o tópico Kafka é o log e o autorizador é o sistema de registro; o snapshot pode ser reconstruído reprocessando os eventos ainda disponíveis no tópico, porque a escrita é idempotente e ordenada pela versão. Retenção ou perda do armazenamento do broker podem exigir outra fonte para reconstrução. O resultado depende do relógio do autorizador (ver *O que eu faria com mais tempo*).
+- **Detalhe:** [add-balance-repository design D6 e D8](openspec/changes/archive/2026-09-30-add-balance-repository/design.md); [add-balance-concurrency-test design D3](openspec/changes/archive/2026-09-30-add-balance-concurrency-test/design.md); [add-transaction-ingestion design D1](openspec/changes/archive/2026-10-01-add-transaction-ingestion/design.md).
+
+### ADR-2. Modelagem no DynamoDB
+
+- **Contexto:** Existe um único padrão de acesso, tanto na escrita quanto na leitura: dado um `accountId`, obter ou substituir o snapshot atual.
+- **Decisão:** Tabela `AccountBalances` (`PAY_PER_REQUEST`) com chave de partição `accountId` (String, UUID em minúsculas), sem chave de ordenação e sem índice secundário. Os atributos são `ownerId`, `balanceAmount` (N), `balanceCurrency`, `lastEventTimestamp` (N, em µs) e `lastTransactionId`. Escrita e leitura são um `PutItem` e um `GetItem` pela chave. O mapeamento é feito à mão (`BalanceItem`), e não pelo Enhanced Client.
+- **Consequência:** Estimativa de 1 WCU por escrita e 1 RCU por leitura fortemente consistente, com item bem abaixo de 1 KB; não é uma medição de capacidade sob carga. Sem GSI, não há custo dobrado de escrita nem leitura eventual. O saldo é `BigDecimal` com a escala da moeda e pode ser negativo (cheque especial). O risco é a conta quente: todas as escritas dela caem num só item e numa só partição (limite de ~1.000 WCU/s), e uma escrita rejeitada pela condição também consome WCU. O Enhanced Client exigiria conversores para os *value objects* e a condição seguiria manual, então não pagou o custo.
+- **Detalhe:** [add-balance-repository design D1 e D9](openspec/changes/archive/2026-09-30-add-balance-repository/design.md).
+
+### ADR-3. Escrita condicional pela versão do snapshot
+
+- **Contexto:** Várias instâncias consomem em paralelo, e o Kafka entrega fora de ordem e em duplicidade. Ler, comparar e gravar na aplicação deixa uma janela de corrida: duas instâncias leem o mesmo valor e a última a gravar vence, mesmo sendo a mais antiga.
+- **Decisão:** `SnapshotVersion` (`timestamp` e id da transação) é a única definição de "mais recente", no domínio: vence o maior `timestamp` e, em empate, o maior id da transação em texto minúsculo (e não `UUID.compareTo`, que compara `long` com sinal e discorda da ordem de bytes do DynamoDB). O adapter a traduz num único `PutItem` com `ConditionExpression`: `attribute_not_exists(accountId) OR lastEventTimestamp < :t OR (lastEventTimestamp = :t AND lastTransactionId < :id)`. A comparação é estrita, então um reenvio não é "mais novo". `ConditionalCheckFailed` não é erro: vira um `SnapshotSaveResult` (`Applied`, `StaleIgnored` ou `DuplicateIgnored`), e o item que bloqueou a escrita (`ReturnValuesOnConditionCheckFailure`) distingue duplicado de mais antigo, sem leitura extra.
+- **Consequência:** A decisão é atômica, em uma ida ao banco, e a idempotência sai da própria condição, sem tabela de deduplicação. Foram descartados o bloqueio otimista por `version` (duas idas por evento e ordena por chegada, não por tempo do evento) e o `TransactWriteItems` (é para vários itens e custa o dobro de WCU). Como a ordem tem duas representações (`compareTo` no domínio e a condição no adapter), um teste de integração em matriz as mantém de acordo, e um teste de concorrência com 32 escritas embaralhadas sobre a mesma conta confirma que o resultado final é a maior versão (o teste foi visto falhar quando a condição era trocada por uma escrita incondicional).
+- **Detalhe:** [add-balance-repository design D2 e D3](openspec/changes/archive/2026-09-30-add-balance-repository/design.md); [add-balance-concurrency-test design D1 e D3](openspec/changes/archive/2026-09-30-add-balance-concurrency-test/design.md); [add-observability design D6](openspec/changes/archive/2026-10-01-add-observability/design.md).
+
+### ADR-4. At-least-once com escrita idempotente
+
+- **Contexto:** O offset só pode avançar depois de o efeito estar no DynamoDB. Um crash entre gravar e confirmar faz o broker reentregar o registro.
+- **Decisão:** `AckMode.MANUAL_IMMEDIATE` num container dedicado (grupo `balance-transaction-ingestion`, `enable.auto.commit=false`, `auto-offset-reset=earliest`): o offset é confirmado depois do `saveIfNewer`, ou depois que a DLT aceitou o registro. A reentrega é ignorada pela condição do `ADR-3`: `DuplicateIgnored` quando sua versão é igual à atual, ou `StaleIgnored` quando outro evento mais novo já substituiu o snapshot. Foram descartados o *exactly-once* do Kafka (o destino é o DynamoDB, fora da transação do Kafka, então não há garantia a mais e há custo de coordenador e latência), o *at-most-once* (confirmar antes de gravar perde evento num crash) e uma tabela de deduplicação (a condição já basta).
+- **Consequência:** Cada evento tem um único efeito observável, mesmo entregue mais de uma vez. Num rebalance não há estado em memória: os registros ainda não confirmados podem ser reentregues ao novo dono, e a condição evita que substituam um snapshot igual ou mais novo. No encerramento, o consumer termina o registro em andamento e sai do grupo. O paralelismo máximo é o número de partições (6, uma estimativa de 600 a 1.200 msg/s que falta validar sob carga).
+- **Detalhe:** [add-transaction-ingestion design D2, D7, D8 e D9](openspec/changes/archive/2026-10-01-add-transaction-ingestion/design.md).
+
+### ADR-5. DLT ou pausa: o que fazer com o registro que falhou
+
+- **Contexto:** Um registro falha por culpa da mensagem (dado inválido) ou da dependência (DynamoDB fora). Tratar os dois do mesmo jeito ou trava a partição com uma mensagem que nunca vai passar, ou esvazia o fluxo bom numa fila que ninguém reprocessa.
+- **Decisão:** A DLT `transacoes-financeiras-processadas.DLT` recebe **só erro permanente** (JSON inválido, campo inválido, falha permanente do armazenamento), com os headers do motivo, e o offset é confirmado. O erro transitório é repetido com backoff exponencial e jitter e **nunca** vai para a DLT. Se a dependência continua fora (circuito aberto ou tentativas esgotadas), o consumer **pausa** as partições por 30 s, sem confirmar o offset nem publicar na DLT, e retoma de onde parou: o primeiro registro reentregue é a sonda do circuito.
+- **Consequência:** "DLT" sempre significa "dado ruim, veja o motivo". Durante a indisponibilidade o Kafka é o buffer durável, e o lag que cresce no broker é o sinal. Descartar o registro perderia evento (o último de uma conta inativa deixaria o saldo errado para sempre), e seguir consumindo queimaria os retries contra uma dependência morta. A DLT não é reprocessada automaticamente: republicar o payload no tópico de origem é seguro, pelo `ADR-3`. Um erro permanente de configuração, como uma tabela inexistente, pode inundar a DLT sem perder registro.
+- **Detalhe:** [add-transaction-ingestion design D4, D5 e D6, e riscos R2 e R3](openspec/changes/archive/2026-10-01-add-transaction-ingestion/design.md).
+
+### ADR-6. Leitura com ConsistentRead
+
+- **Contexto:** Uma consulta logo depois da ingestão podia ler de uma réplica atrasada e devolver o saldo anterior à transação do cliente, o erro mais visível num core banking.
+- **Decisão:** `GetItem` com `ConsistentRead=true` (nunca `Scan` nem `Query`), por um cliente DynamoDB de leitura próprio, com timeouts curtos (orçamento de 800 ms, no máximo 1 retry) e um circuit breaker próprio, separado do da escrita. Assim uma rajada de consultas lentas não pausa a ingestão, nem o contrário.
+- **Consequência:** A leitura forte custa 1 RCU contra 0,5 da eventual. É a escolha por consistência: numa partição de rede a leitura forte pode falhar onde a eventual responderia, e a API degrada essa falha para `503` com `Retry-After`. O limite honesto é que o atraso dominante é o lag do consumer, que leitura forte não corrige. A leitura forte também não vale em índice secundário (não há) nem em Global Tables, e o DAX não a serve do cache.
+- **Detalhe:** [add-balance-repository design D4](openspec/changes/archive/2026-09-30-add-balance-repository/design.md); [add-balance-query-api design D6, D7 e D8](openspec/changes/archive/2026-10-01-add-balance-query-api/design.md).
+
+### ADR-7. Sem cache de saldo
+
+- **Contexto:** O requisito é o saldo mais atual. Qualquer cache, mesmo com TTL curto, reintroduz leitura velha e anula a leitura forte do `ADR-6`.
+- **Decisão:** Nenhum cache de saldo, local ou distribuído. Toda resposta de `/balances/**` leva `Cache-Control: no-store`, aplicado por um `NoStoreFilter`. Um filtro, e não o interceptor pronto do Spring, porque o interceptor só roda quando existe handler: um `405` ou uma rota inexistente ficariam sem o cabeçalho e poderiam ser guardados por um intermediário.
+- **Consequência:** Cada consulta é um `GetItem` pela chave, barato o bastante para dispensar cache. Foram descartados o cache local com TTL (cada instância teria a sua janela de inconsistência), o DAX (a leitura forte passa direto por ele) e o `ETag` (a leitura ao DynamoDB acontece de qualquer forma). Se a leitura virar o gargalo medido, o caminho é um cache com invalidação por evento, com a regra de consistência declarada no contrato.
+- **Detalhe:** [add-balance-query-api design D8](openspec/changes/archive/2026-10-01-add-balance-query-api/design.md).
+
+### Ambiguidades do enunciado
+
+O enunciado deixa estas questões em aberto. Cada uma foi decidida e justificada no `design.md` da change de origem.
+
+| Ambiguidade | Decisão | Origem |
+|-|-|-|
+| Rota no singular ou no plural | `GET /balances/{accountId}`, no plural, como no exemplo do enunciado | `add-balance-query-api` D2 |
+| `updated_at` vem do `timestamp` ou do momento da persistência | `updated_at` é o `transaction.timestamp` do evento que gerou o snapshot | `add-balance-repository` D8 |
+| Status HTTP de conta inexistente e de id inválido | `404` para conta sem snapshot e `400` para `accountId` que não é UUID | `add-balance-query-api` D3 |
+| Evento rejeitado (`DECLINED`) atualiza o snapshot | Sim, pela mesma regra de versão; só `updated_at` avança, porque o saldo do evento é o anterior | `add-transaction-ingestion` D1 |
+| Empate de `timestamp` entre eventos da mesma conta | Vence o maior id de transação, em texto minúsculo (empate arbitrário, mas determinístico) | `add-balance-repository` D2 |
+
+## Estratégia de testes
+
+Todo cenário das specs de `openspec/specs/` virou teste **antes** do código (TDD), e os testes seguem as mesmas regras de qualidade do código de produção.
+
+| Nível | Onde | Infraestrutura | Roda com | O que prova |
+|-|-|-|-|-|
+| Unitário | `src/test` | nenhuma | `./gradlew check` (ou `make test`, dentro de um container) | domínio, casos de uso com fakes, contrato HTTP com MockMvc, tradução de erros do SDK contra um servidor HTTP local, circuit breaker, arquitetura (Konsist) e arquivos de infraestrutura e documentação |
+| Integração e ponta a ponta | `src/integrationTest` | DynamoDB Local e Redpanda reais | `make integration-test` | a condicional no DynamoDB real, a ingestão com DLT e pausa, o fluxo Kafka → DynamoDB → HTTP e a concorrência |
+
+Os testes de integração ficam fora do `check` de propósito, para o pipeline padrão não exigir infraestrutura. O CI roda os dois níveis.
+
+### Cenários cobertos
+
+| Cenário do enunciado | Teste unitário | Teste de integração |
+|-|-|-|
+| Evento duplicado | `DynamoDbBalanceWriterTest`, `ProcessTransactionServiceTest` | `DynamoDbBalanceIntegrationTest`, `IngestionMetricsIntegrationTest` |
+| Evento fora de ordem | `SnapshotVersionTest`, `SnapshotSaveResultTest` | `DynamoDbBalanceIntegrationTest`, `BalanceQueryEndToEndIntegrationTest` |
+| Conta inexistente | `GetBalanceServiceTest`, `BalanceControllerTest` | `BalanceQueryEndToEndIntegrationTest` |
+| Concorrência | | `DynamoDbBalanceIntegrationTest` |
+| Dependência indisponível | `CircuitBreakerBalanceRepositoryTest`, `BalanceControllerTest` | `BalanceQueryDependencyUnavailableIntegrationTest`, `TransactionIngestionPauseIntegrationTest` |
+| Mensagem inválida | `TransactionEventMapperTest`, `IngestionRecovererTest` | `TransactionIngestionIntegrationTest` |
+| Identificador de conta inválido | `AccountIdParserTest`, `BalanceControllerTest` | `BalanceQueryEndToEndIntegrationTest` |
+
+O teste de concorrência (`DynamoDbBalanceIntegrationTest`) dispara 32 escritas da mesma conta, embaralhadas, em coroutines no `Dispatchers.IO` liberadas ao mesmo tempo por um `CompletableDeferred`, e confere que o item final tem a maior versão. O fluxo completo está em dois testes: `TransactionIngestionEndToEndIntegrationTest` publica no Redpanda, espera a ingestão e lê o snapshot no DynamoDB pelo `BalanceProvider`, e `BalanceQueryEndToEndIntegrationTest` faz o mesmo e consulta por HTTP real. O `ReadmeTest` impede este documento de citar comando, variável ou classe que não existe.
+
+### Cobertura
+
+O JaCoCo exige **90% de cobertura de instruções**, e o `./gradlew check` falha se o gate não for atingido. O resumo (instruções, branches, linhas, complexidade, métodos e classes, com o veredito do gate) é impresso no próprio output do Gradle. O relatório HTML completo fica em `build/reports/jacoco/test/html/index.html` depois de `./gradlew test` ou `./gradlew check`.
+
+Os testes que leem o repositório declaram documentos, OpenSpec, infraestrutura, HTTP e inventários de fontes (incluindo integração) como inputs do Gradle. Edições, criação, rename ou remoção invalidam a verificação; sem mudanças, `UP-TO-DATE` é esperado. No Docker, o estágio `test` recebe esses arquivos por `COPY` seletivo; builder e runtime ficam separados. Um build que reutiliza a camada de testes não é evidência de uma nova execução. Detalhes em [enforce-hexagonal-architecture design D4 e D5](openspec/changes/archive/2026-10-02-enforce-hexagonal-architecture/design.md).
+
+## Resiliência e observabilidade
+
+### O que existe
+
+| Mecanismo | Como funciona | Configuração |
+|-|-|-|
+| Circuit breaker de escrita e de leitura | Duas instâncias independentes, `balance-storage` (a escrita, cuja abertura pausa a ingestão) e `balance-storage-read` (a consulta). Só falha transitória conta; falha permanente e "conta inexistente" não | `BALANCE_CB_*` (abre com 50% de falhas numa janela de 10 chamadas, espera 30 s, 3 sondas) |
+| Cliente de escrita | Timeouts de 500 ms (conexão), 1 s (socket e tentativa) e 3 s (chamada), 3 tentativas | `DYNAMODB_*` |
+| Cliente de leitura | Timeouts de 200 ms, 300 ms e 300 ms por tentativa, 800 ms no total, no máximo 2 tentativas (1 retry); a subida falha se a configuração passar disso | `DYNAMODB_READ_*` |
+| Retry da ingestão | Só erro transitório: 3 retries, backoff exponencial de 200 ms (×2, até 2 s) com jitter de 100 ms | `INGESTION_*` |
+| DLT | Só erro permanente, com os headers do motivo e da origem e o `traceparent` preservado | `TRANSACTIONS_DLT_TOPIC` |
+| Pausa e retomada | Com a dependência fora, o consumer pausa as partições e retoma sozinho depois de 30 s | `INGESTION_PAUSE_DURATION` |
+| `503` na API | Falha transitória ou circuito aberto vira `503` com `Retry-After` e `problem+json`; o circuito aberto falha em milissegundos | `BALANCE_API_RETRY_AFTER` |
+| Encerramento gracioso | O `readiness` recusa tráfego, as requisições terminam e o consumer termina o registro em andamento, dentro de `stop_grace_period` (40 s, maior que os 30 s do encerramento) | `spring.lifecycle.timeout-per-shutdown-phase` |
+
+### Probes
+
+As probes ficam na porta de gerenciamento `8082`, separada da API. Só `health` e `prometheus` estão expostos.
+
+| Probe | URL | Olha para |
+|-|-|-|
+| liveness | `/actuator/health/liveness` | só o processo vivo |
+| readiness | `/actuator/health/readiness` | só o estado da aplicação (vira `503` ao começar o encerramento) |
+
+O `readiness` **não depende** do DynamoDB nem do Kafka, de propósito, porque todas as instâncias dividem a mesma dependência, então verificá-la tiraria todas do balanceador ao mesmo tempo, trocando a resposta controlada (`503` com `Retry-After`, circuito aberto falhando em milissegundos) por recusa de conexão. A indisponibilidade aparece na métrica do circuito. Justificativa completa em [add-observability design D7](openspec/changes/archive/2026-10-01-add-observability/design.md).
+
+### Logs e dados sensíveis
+
+Os logs são JSON de uma linha no console (formato `logstash` do Spring Boot), com `traceId` em todo log escrito durante uma requisição HTTP ou o processamento de um registro do Kafka. O `traceId` vem do `traceparent` (W3C Trace Context), no HTTP e no header do registro, ou é gerado se não vier; é o único id de correlação, e é o mesmo do corpo de erro `problem+json`. O `owner` e o payload do evento nunca vão para log, e o `accountId` sai mascarado (só o primeiro grupo do UUID, por exemplo `AccountId(5b19c8b6)`), por construção no `toString` dos *value objects*.
+
+### Métricas para olhar
+
+Em `/actuator/prometheus`, na porta `8082`:
+
+```bash
+curl -s http://localhost:8082/actuator/prometheus | grep -E '^(balance_transactions_processed_total|resilience4j_circuitbreaker_state)'
+```
+
+| Métrica | O que indica |
+|-|-|
+| `balance_transactions_processed_total{result}` | Eventos por desfecho final: `applied`, `stale_ignored` (mais antigo que o guardado), `duplicate` (o mesmo evento de novo) e `dlq`. `dlq` maior que zero é dado ruim; `stale_ignored` alto aponta ordem ou relógio do autorizador; `duplicate` alto aponta reentrega |
+| `spring_kafka_listener_seconds{spring_kafka_listener_id}` | Latência de processamento por registro, inclusive nas falhas. Filtre por `spring_kafka_listener_id="balance-transaction-ingestion-0"`: a série sem essa tag é a do listener do exemplo `hello` |
+| `kafka_consumer_fetch_manager_records_lag_max{client_id,...}` | Família de lag máximo do consumer. O exportador desta stack também pode incluir `partition` e retornar `NaN`, sem amostra agregada válida. O lag por partição está em `kafka_consumer_fetch_manager_records_lag{client_id,partition}`. Mede a busca, não o processamento: com as partições pausadas ele pode ficar parado ou em 0 (com o DynamoDB fora, marcou 0 enquanto o lag real do broker era 30), então use o estado do circuito |
+| `resilience4j_circuitbreaker_state{name,state}` | Estado dos circuitos `balance-storage` e `balance-storage-read`. Circuito aberto é dependência fora, e é o sinal que vale quando o lag estaciona |
+| `http_server_requests_seconds_*{status,uri,method}` | Latência e contagem das requisições por status, com a rota em padrão (`/balances/{accountId}`) |
+
+Nenhuma métrica leva `accountId`, `owner` ou `transactionId` como tag, para a cardinalidade ficar baixa. Prometheus, Grafana e alertas não fazem parte do kit; o que ficou de fora está em *O que eu faria com mais tempo*.
+
+### Contêiner
+
+O DynamoDB Local roda em memória: recriar ou reiniciar seu processo perde os snapshots locais, e o seed só repõe os dados de exemplo do `hello`. Esse ambiente de desenvolvimento não oferece durabilidade de produção. A retenção e o armazenamento do Kafka também limitam o backlog e o reprocessamento.
+
+Imagem multi-stage com versões fixas, processo como usuário não root (UID `10001`), flags de memória da JVM para contêiner (`JAVA_TOOL_OPTIONS`) e `ENTRYPOINT` em forma exec, para o `SIGTERM` chegar à JVM e acionar o encerramento gracioso.
+
+## O que eu faria com mais tempo
+
+Tudo abaixo está fora do escopo de propósito, e cada item tem o motivador e a decisão em que a lacuna foi declarada.
+
+| Item | Motivador | Origem |
+|-|-|-|
+| Número de sequência por conta emitido pelo autorizador | Relógio físico não dá causalidade: um relógio atrasado faz um evento novo virar `StaleIgnored`, e o desempate por id é arbitrário. A sequência elimina os dois problemas | `add-balance-repository` Riscos (relógio do autorizador); `add-balance-concurrency-test` Riscos (relógio do autorizador) |
+| Rejeitar `transaction.timestamp` no futuro além de uma tolerância | Um relógio adiantado "congela" a conta até o tempo real alcançar aquele instante | `add-balance-repository` Riscos (relógio do autorizador) |
+| Reprocessamento da DLT, com um comando ou automático | Hoje um evento ruim só volta ao fluxo por ação humana (republicar no tópico de origem, seguro pela idempotência) | `add-transaction-ingestion` R3 |
+| Partições validadas sob carga | As 6 partições e os 600 a 1.200 msg/s são estimativa (100 a 200 msg/s por thread), não medição. Partições crescem, mas nunca diminuem | `add-transaction-ingestion` D7 |
+| Coalescer escritas por conta dentro de um lote do Kafka | Uma conta quente concentra escrita num item e numa partição; juntar escritas reduziria o custo sem mudar a semântica | `add-balance-repository` Riscos (hot partition) |
+| Tabela de histórico com `TransactWriteItems` | Só se o histórico precisar ser guardado junto do snapshot (auditoria); hoje o tópico é o log | `add-balance-repository` D6; `add-balance-concurrency-test` D3 |
+| Cache de leitura com invalidação por evento, ou DAX para leituras tolerantes | Só se a leitura virar o gargalo medido, com a regra de consistência declarada no contrato | `add-balance-query-api` D8 |
+| Retry não bloqueante (`@RetryableTopic`) | Resolve o bloqueio de partição por mensagem, que a DLT já cobre; para falha de dependência empilharia eventos e multiplicaria tópicos | `add-transaction-ingestion` D5 |
+| Exactly-once do Kafka | O destino é o DynamoDB, fora da transação do Kafka: custaria coordenador e latência sem garantia a mais | `add-transaction-ingestion` D2 |
+| Gauge de lag por `AdminClient` | A métrica do cliente fica parada com as partições pausadas (medido: lag do broker 30, métrica 0); o estado do circuito é o sinal provisório | `add-observability` D5 |
+| Exportação de traces e um coletor (OTLP) | Hoje só se gera e propaga o `traceId`, sem exportador: Prometheus, Grafana e o coletor OTLP não fazem parte do kit do desafio, então não há para onde enviar os traces | `add-observability` Non-Goals e D2 |
+| Alertas, dashboards e SLOs | As métricas existem, mas Prometheus e Grafana não estão no kit, então ninguém é avisado | `add-observability` D5 |
+| Autenticação, autorização e rate limiting na API e no endpoint de gerenciamento | Fora do escopo do desafio: assume-se serviço interno atrás de um gateway, e o gerenciamento só é protegido por estar em outra porta | `add-balance-query-api` Non-Goals e R8; `add-observability` R7 |
+| `Retry-After` calculado pelo tempo restante do circuito | Hoje é um valor fixo; o Resilience4j não expõe esse tempo de forma estável | `add-balance-query-api` D4 |
+| `DnsResolver` com timeout no cliente HTTP do SDK | A resolução de DNS fica fora do orçamento de latência: com o container parado a primeira consulta levou 7,85 s para dar `503`, contra 800 ms de orçamento | `add-observability` R10 |
+| Tabela de produção por IaC, com recuperação em ponto no tempo | Fora do escopo do desafio; o seed local cria a tabela só para o ambiente de desenvolvimento | `add-balance-repository` Migration Plan (produção) |
+| Gerador de eventos que reutilize contas | Hoje cada evento usa uma conta nova, então o gerador não demonstra duplicado nem fora de ordem | *Como rodar* |
+| Imagem com jar em camadas | A imagem é reconstruída por inteiro a cada mudança, o que é aceitável hoje | `add-observability` D8 |
+
+## Como o repositório foi construído
+
+O repositório foi construído com **Spec-Driven Development** sobre o [OpenSpec](https://github.com/Fission-AI/OpenSpec): primeiro se escreve o que o sistema deve fazer, em requisitos com cenários, e só depois o código, que nasce dos testes desses cenários. A pasta `openspec/` guarda tudo isso:
+
+| Caminho | Papel |
+|-|-|
+| `openspec/project.md` | O contexto completo do projeto (stack, arquitetura, convenções, comandos, domínio e critérios de avaliação), a fonte de verdade para humanos e agentes |
+| `openspec/config.yaml` | A versão condensada do mesmo contexto (`context:`) e as regras por artefato; o OpenSpec a injeta em toda proposta, design, spec e task. Os dois arquivos são mantidos em sincronia |
+| `openspec/specs/` | O que o sistema faz hoje: uma pasta por capacidade, com requisitos e cenários `WHEN`/`THEN` |
+| `openspec/changes/` | As mudanças em andamento |
+| `openspec/changes/archive/` | As mudanças concluídas, com `proposal.md`, `design.md`, as specs delta, `tasks.md` e, quando houve, os relatórios de revisão |
+
+Cada mudança percorre o mesmo ciclo: **proposal** (por quê), **design** (decisões com alternativas descartadas, riscos e as ambiguidades do enunciado resolvidas), **specs** (requisitos e cenários), **tasks** (lista test-first), **apply** (implementação) e **archive** (os deltas viram `openspec/specs/`). Histórico das changes, na ordem:
+
+| Change | O que entregou |
+|-|-|
+| `add-balance-repository` | O snapshot de saldo e a escrita condicional no DynamoDB |
+| `add-balance-concurrency-test` | O teste de concorrência com coroutines em paralelo |
+| `add-transaction-ingestion` | O consumer Kafka com DLT, retry, pausa e circuit breaker |
+| `add-balance-query-api` | `GET /balances/{accountId}`, o erro `problem+json`, a leitura resiliente e o OpenAPI |
+| `add-observability` | Logs estruturados, `traceId`, métricas, probes e o contêiner |
+| `enforce-hexagonal-architecture` | Núcleo puro, composição externa, infraestrutura neutra e verificação Gradle/Docker |
+| `add-architecture-docs` | Este README e o `ReadmeTest` que o protege |
+
+As regras de trabalho estão em [`CLAUDE.md`](CLAUDE.md), que funciona como uma constituição de qualidade de código: Clean Architecture, SOLID, Clean Code, DRY/KISS/YAGNI, design patterns e a regra de não reinventar a roda, comentários só no cabeçalho do arquivo, e a conformidade com o enunciado, validada item por item (ver a seção *O que será avaliado* do `enunciado.md`). Três regras moldam o histórico do git:
+
+- **TDD:** todo cenário das specs vira teste antes do código de produção.
+- **Revisão independente:** nenhuma implementação é commitada sem a revisão de outro agente, de contexto limpo e somente leitura, em até 3 rodadas.
+- **Um commit por change**, em Conventional Commits com a mensagem em português (`feat(balance): ...`), reunindo implementação, testes, specs, contexto motivado pela mudança e seu arquivo no OpenSpec. Alterações pendentes de outros escopos podem permanecer na árvore de trabalho e são separadas no stage.
+
+O contexto completo do projeto está em [`openspec/project.md`](openspec/project.md).
 
 ## Variáveis de ambiente
 
@@ -280,12 +474,18 @@ Todas têm valor padrão para desenvolvimento local (fora do Docker Compose) e s
 | Variável | Padrão (local) | Descrição |
 |-|-|-|
 | `DYNAMODB_ENDPOINT` | `http://localhost:8000` | endpoint do DynamoDB |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | (obrigatórias) | credenciais AWS, lidas pela cadeia padrão do SDK; no ambiente local, `local` e `local` (o Gradle `test` e `bootRun` já as definem). Fora do Gradle, exporte as duas antes de rodar `Application.kt` |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | (obrigatórias) | credenciais AWS, lidas pela cadeia padrão do SDK; no ambiente local, `local` e `local` (o compose, o Gradle `test` e `bootRun` já as definem). Fora do Gradle, exporte as duas antes de rodar `Application.kt` |
 | `DYNAMODB_REGION` | `us-east-1` | região (fake, para o SDK) |
-| `GREETING_TABLE_NAME` | `GreetingMessages` | tabela do DynamoDB |
+| `BALANCE_TABLE_NAME` | `AccountBalances` | tabela do snapshot de saldo |
+| `GREETING_TABLE_NAME` | `GreetingMessages` | tabela do exemplo `hello` |
+| `DYNAMODB_CONNECTION_TIMEOUT` | `500ms` | timeout de conexão do cliente de escrita |
+| `DYNAMODB_SOCKET_TIMEOUT` | `1s` | timeout de socket do cliente de escrita |
+| `DYNAMODB_API_CALL_ATTEMPT_TIMEOUT` | `1s` | timeout de cada tentativa da escrita |
+| `DYNAMODB_API_CALL_TIMEOUT` | `3s` | timeout da escrita inteira |
+| `DYNAMODB_MAX_ATTEMPTS` | `3` | tentativas do cliente de escrita |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | broker Kafka/Redpanda |
-| `KAFKA_CONSUMER_GROUP_ID` | `hello-greeting-template-consumer` | group id do consumer |
-| `GREETING_TEMPLATES_TOPIC` | `greeting-templates` | tópico consumido |
+| `KAFKA_CONSUMER_GROUP_ID` | `hello-greeting-template-consumer` | group id do consumer do exemplo `hello` |
+| `GREETING_TEMPLATES_TOPIC` | `greeting-templates` | tópico do exemplo `hello` |
 | `TRANSACTIONS_TOPIC` | `transacoes-financeiras-processadas` | tópico de transações consumido |
 | `TRANSACTIONS_DLT_TOPIC` | `transacoes-financeiras-processadas.DLT` | tópico de erros permanentes |
 | `TRANSACTIONS_CONSUMER_GROUP_ID` | `balance-transaction-ingestion` | group id do consumer de transações |
@@ -308,74 +508,7 @@ Todas têm valor padrão para desenvolvimento local (fora do Docker Compose) e s
 | `BALANCE_API_RETRY_AFTER` | `5s` | valor do `Retry-After` do `503` |
 | `MANAGEMENT_PORT` | `8082` | porta de gerenciamento (probes e métricas), separada da API |
 | `LOG_FORMAT` | `logstash` | formato do log no console (JSON); `ecs` e `gelf` também são aceitos pelo Spring Boot |
-
-## Observabilidade e production readiness
-
-**Logs.** JSON de uma linha no console (formato `logstash` do Spring Boot), com `traceId` em todo log escrito durante uma requisição HTTP ou o processamento de um registro do Kafka. O `traceId` é o `trace-id` do cabeçalho `traceparent` (W3C Trace Context), no HTTP e no header do registro Kafka; se não vier, o serviço gera um. A DLT preserva o header. Não existe um segundo `correlationId`. O `traceId` do corpo de erro `problem+json` é o mesmo do log.
-
-**Dados sensíveis.** O `owner` e o payload do evento nunca vão para log. O `accountId` sai mascarado (só o primeiro grupo do UUID, por exemplo `AccountId(5b19c8b6)`), por construção no `toString` dos value objects. Evento duplicado ou mais antigo é logado em `DEBUG`; quem quer saber quantos são lê a métrica.
-
-**Health (porta `8082`, separada da API).**
-
-| Probe | URL | Depende de |
-|-|-|-|
-| liveness | `/actuator/health/liveness` | só do processo vivo |
-| readiness | `/actuator/health/readiness` | só do estado da aplicação (vira `503` ao começar o encerramento) |
-
-O `readiness` **não** depende do DynamoDB nem do Kafka, de propósito: todas as instâncias dividem a mesma dependência, então verificá-la tiraria todas do balanceador ao mesmo tempo, trocando a resposta controlada (`503` com `Retry-After`, circuito aberto falhando em milissegundos) por recusa de conexão. A indisponibilidade aparece na métrica do circuito. Justificativa completa em `openspec/changes/add-observability/design.md` (D7).
-
-**Métricas** (`/actuator/prometheus`, porta de gerenciamento; só `health` e `prometheus` estão expostos).
-
-| Métrica | O que mede |
-|-|-|
-| `balance_transactions_processed_total{result}` | eventos por desfecho: `applied`, `stale_ignored` (mais antigo), `duplicate` (o mesmo evento de novo) e `dlq` |
-| `spring_kafka_listener_seconds{spring_kafka_listener_id}` | latência de processamento por registro |
-| `kafka_consumer_fetch_manager_records_lag_max{client_id}` | maior lag entre as partições do consumer (mede a busca, e não o processamento: com o DynamoDB parado ele marcou 0 enquanto o lag real do broker era 30; use o estado do circuito e o contador de resultado, e veja a evolução documentada) |
-| `resilience4j_circuitbreaker_state{name,state}` | estado dos circuitos `balance-storage` (escrita) e `balance-storage-read` (leitura) |
-| `http_server_requests_seconds_*{status,uri,method}` | requisições HTTP por status, com a rota em padrão (`/balances/{accountId}`) |
-
-Nenhuma métrica leva `accountId`, `owner` ou `transactionId` como tag (cardinalidade baixa).
-
-
-**Evoluções documentadas (não implementadas):** gauge de lag via `AdminClient` (preciso mesmo com as partições pausadas), exportação de traces e um coletor, alertas e dashboards, autenticação do endpoint de gerenciamento e imagem com jar em camadas.
-
-## Como rodar
-
-Pré-requisito único: **Docker** (com Docker Compose). O `make` já vem instalado por padrão em Linux e macOS; no Windows, use o **WSL2** (o Makefile depende de utilitários estilo Unix e não roda direto no PowerShell/cmd).
-
-```bash
-make up      # sobe tudo em background: app + DynamoDB + Redpanda (+ seeds + consoles)
-make logs    # acompanha os logs da aplicação
-curl "http://localhost:8080/hello?name=Ada"
-make stop    # derruba tudo
-```
-
-Consoles web disponíveis depois de subir a stack:
-
-| Console | URL |
-|-|-|
-| Aplicação | http://localhost:8080 |
-| DynamoDB Admin | http://localhost:8001 |
-| Redpanda Console | http://localhost:8081 |
-
-### Loop de desenvolvimento rápido (rodando pela IDE)
-
-Para iterar mais rápido durante o desenvolvimento — com debugger, breakpoints e sem reconstruir a imagem Docker a cada mudança — rode a aplicação direto pela IDE em vez de `make up`/`make run`:
-
-```bash
-make db-up        # só DynamoDB Local + console web
-make kafka-up  # só Redpanda + console web
-```
-
-Esses comandos retornam assim que os containers **sobem**, não quando os jobs de seed **terminam** — espere alguns segundos (acompanhe com `make logs` ou pelos consoles web) antes de rodar a aplicação, senão ela pode consultar a tabela/tópico antes de estarem populados.
-
-Depois rode `Application.kt` (ou `./gradlew bootRun`) direto pela IDE. Os valores padrão em `application.yaml` (`localhost:8000` para o DynamoDB, `localhost:19092` para o Redpanda) já apontam para essas portas — nenhuma variável de ambiente extra é necessária.
-
-### Solução de problemas
-
-- **Primeiro `make up` demorando:** na primeira execução o Docker baixa ~5 imagens (`dynamodb-local`, `aws-cli`, `redpanda`, `redpanda-console`, `dynamodb-admin`), então pode levar alguns minutos dependendo da sua internet. Acompanhe com `make logs` — se não houver progresso nenhum por vários minutos, aí sim algo está errado.
-- **Erro `port is already allocated` / `address already in use`:** a stack ocupa as portas `8080` (app), `8000`/`8001` (DynamoDB), `8081` (Redpanda Console) e `9092`/`19092` (Redpanda). Libere a porta em conflito (encerrando o processo que a está usando) ou pare qualquer outra stack local que já esteja rodando.
-- **Ficou algo travado/inconsistente:** `make clean-containers` remove todos os containers do projeto (rodando ou parados, incluindo órfãos) para você começar do zero.
+| `JAVA_TOOL_OPTIONS` | `-XX:MaxRAMPercentage=70.0 -XX:+ExitOnOutOfMemoryError` | flags da JVM na imagem; sobrescreva por ambiente sem reconstruir |
 
 ## Comandos do Makefile
 
@@ -390,69 +523,42 @@ Execute `make help` a qualquer momento para ver esta lista no terminal.
 | `make up` | sobe a stack em background |
 | `make logs` | acompanha os logs da aplicação (`docker compose logs -f`) |
 | `make stop` | derruba os containers da stack (`docker compose down`) |
-| `make http` | chama os arquivos `.http` contra a app rodando (via container Node, sem dependência local) |
+| `make http` | chama os arquivos `.http` contra a app rodando, via container Node; só cobre o exemplo `hello` ([`http/hello.http`](http/hello.http)), não o `/balances` |
 
 ### DynamoDB
 
 | Comando | Descrição |
 |-|-|
-| `make db-up` | sobe o DynamoDB Local + console web e popula a tabela `GreetingMessages` |
-| `make db-seed` | roda novamente o job de seed (idempotente — a tabela não é recriada, os itens são sobrescritos) |
-| `make db-scan` | lista todos os itens atualmente na tabela |
-| `make db-down` | para o DynamoDB Local + console web |
+| `make db-up` | sobe o DynamoDB Local e o console web, e cria as tabelas `AccountBalances` e `GreetingMessages` |
+| `make db-seed` | roda novamente o job de seed (idempotente: as tabelas não são recriadas, os itens do `hello` são sobrescritos) |
+| `make db-scan` | lista os itens da tabela `GreetingMessages`, só do exemplo `hello`; para ver o `AccountBalances`, use o DynamoDB Admin |
+| `make db-down` | para o DynamoDB Local e o console web |
 
 ### Kafka / Redpanda
 
-> **Nota:** a criação automática de tópicos (`auto_create_topics_enabled`) fica desabilitada por `infra/redpanda/config.sh` logo que o cluster sobe (roda antes de `seed.sh`, no mesmo container `redpanda-seed`). Ou seja, tópicos precisam ser criados explicitamente — via `make kafka-topic-create` ou pelo próprio seed — antes de produzir/consumir mensagens.
+> **Nota:** a criação automática de tópicos (`auto_create_topics_enabled`) fica desabilitada por `infra/redpanda/config.sh` logo que o cluster sobe. Tópicos precisam ser criados explicitamente, via `make kafka-topic-create`, `make kafka-topics-ingestion` ou pelo próprio seed, antes de produzir ou consumir mensagens.
 
 | Comando | Descrição |
 |-|-|
-| `make kafka-up` | sobe o Redpanda + console web e popula o tópico `greeting-templates` |
-| `make kafka-seed` | roda novamente o job de seed (cria o tópico se não existir; mensagens são republicadas — tópicos Kafka são *append-only*, então o total de mensagens cresce a cada execução) |
-| `make kafka-topic-create NAME=meu-topico [PARTITIONS=3]` | cria um novo tópico no Redpanda com o nome e o número de partições informados (`PARTITIONS` é opcional, padrão `1`) |
-| `make kafka-topics-ingestion` | cria, se ainda não existirem, o tópico `transacoes-financeiras-processadas` e a DLT, com 6 partições cada, usando `make kafka-topic-create`; o `make integration-test` já o executa |
-| `make kafka-produce-accounts-events TOPIC=meu-topico [COUNT=50]` | produz eventos de teste no formato `{"account": {...}}` (id/owner UUID aleatórios, `created_at` aleatório nos últimos 10 minutos, `status` ENABLED/DISABLED aleatório) para o tópico informado (`COUNT` é opcional, padrão `100`) |
-| `make kafka-produce-transactions-events TOPIC=meu-topico [COUNT=50]` | produz eventos de teste no formato `{"transaction": {...}, "account": {...}}` (id's UUID aleatórios, `type` CREDIT/DEBIT, `amount` aleatório de 0.01 a 10000, `status` APPROVED/DECLINED, `timestamp` aleatório nos últimos 10 minutos; `account.created_at` aleatório nos últimos 10 anos, `account.status` sempre ENABLED, `balance.amount` aleatório de 0.00 a 20000) para o tópico informado (`COUNT` é opcional, padrão `100`) |
-| `make kafka-consume TOPIC=meu-topico` | imprime todas as mensagens atualmente no tópico informado (usa timeout de 5s, já que `rpk topic consume` não tem um modo "ler o que existe e sair") |
-| `make kafka-down` | para o Redpanda + console web |
+| `make kafka-up` | sobe o Redpanda e o console web, e cria os tópicos |
+| `make kafka-seed` | roda novamente o job de seed (a criação dos tópicos é idempotente; as mensagens do `hello` são republicadas, e como tópicos Kafka são *append-only* o total cresce a cada execução) |
+| `make kafka-topic-create NAME=meu-topico [PARTITIONS=3]` | cria um tópico no Redpanda com o nome e o número de partições informados (`PARTITIONS` é opcional, padrão `1`) |
+| `make kafka-topics-ingestion` | cria, se ainda não existirem, o tópico `transacoes-financeiras-processadas` e a DLT, com 6 partições cada ([`infra/redpanda/ingestion-topics.sh`](infra/redpanda/ingestion-topics.sh), o mesmo script do seed); o `make integration-test` já o executa |
+| `make kafka-produce-accounts-events TOPIC=meu-topico [COUNT=50]` | produz eventos no formato `{"account": {...}}` (herdado do kit, sem relação com o saldo) para o tópico informado (`COUNT` é opcional, padrão `100`) |
+| `make kafka-produce-transactions-events TOPIC=meu-topico [COUNT=50]` | produz eventos de teste no formato `{"transaction": {...}, "account": {...}}`, com ids UUID aleatórios (uma conta nova por evento), `type` CREDIT ou DEBIT, `amount` de 0.01 a 10000, `status` APPROVED ou DECLINED, `timestamp` nos últimos 10 minutos e `balance.amount` de 0.00 a 20000, para o tópico informado (`COUNT` é opcional, padrão `100`) |
+| `make kafka-consume TOPIC=meu-topico` | imprime todas as mensagens atualmente no tópico informado (usa timeout de 5 s, já que `rpk topic consume` não tem um modo "ler o que existe e sair") |
+| `make kafka-down` | para o Redpanda e o console web |
 
 ### Testes
 
 | Comando | Descrição |
 |-|-|
-| `make test` | constrói a imagem de teste e roda `./gradlew check` (testes unitários + gate de cobertura ≥ 90%) dentro de um container — não precisa de nenhuma infra externa |
-| `make integration-test` | sobe DynamoDB + Redpanda reais e roda `./gradlew integrationTest` contra eles |
+| `make test` | constrói a imagem de teste e roda `./gradlew check` (testes unitários e gate de cobertura ≥ 90%) dentro de um container, sem nenhuma infraestrutura externa |
+| `make integration-test` | sobe DynamoDB e Redpanda reais, cria os tópicos e roda `./gradlew integrationTest` contra eles |
 
 ### Limpeza
 
 | Comando | Descrição |
 |-|-|
-| `make clean-containers` | remove **todos** os containers do projeto (rodando ou parados), incluindo órfãos de serviços renomeados/removidos |
+| `make clean-containers` | remove **todos** os containers do projeto (rodando ou parados), incluindo órfãos de serviços renomeados ou removidos |
 | `make clean` | remove as imagens Docker construídas localmente |
-
-## Testes
-
-O projeto tem duas suítes de teste bem separadas:
-
-### `src/test` — testes unitários (`./gradlew test`)
-Não dependem de nenhuma infraestrutura externa — rodam em qualquer lugar, inclusive dentro do container Docker de teste (`make test`), sem Docker-in-Docker.
-
-- Testes de domínio, aplicação e adapters usando **fakes/mocks** para os *ports* (nenhuma chamada real a DynamoDB ou Kafka).
-- `GreetingControllerTest` usa `MockMvc` + `@MockitoBean` para isolar a camada web.
-- `HexagonalArchitectureTest` valida a direção de dependências entre as camadas (Konsist).
-
-### `src/integrationTest` — testes de integração (`./gradlew integrationTest`)
-Rodam contra infraestrutura **real**, subida via Docker Compose. Ficam propositalmente fora do `check`/`test` para não exigir infra no pipeline padrão.
-
-- `DynamoDbGreetingTemplateIntegrationTest` — grava e lê de uma tabela DynamoDB real (`make db-up`).
-- `BalanceQueryEndToEndIntegrationTest` — publica eventos no Redpanda real, espera a ingestão e consulta `GET /balances/{accountId}` por HTTP real: `200`, `404`, `400`, evento fora de ordem e evento `DECLINED`.
-- `BalanceQueryDependencyUnavailableIntegrationTest` — aponta o DynamoDB para uma porta fechada e confere o `503` com `Retry-After` dentro do orçamento da leitura e a falha rápida com o circuito aberto.
-- `GreetingTemplateConsumerIntegrationTest` — sobe o contexto Spring real (incluindo o `@KafkaListener` de produção) conectado ao broker Redpanda real (`make kafka-up`); publica uma mensagem no tópico e valida que o *listener* da aplicação a consome sozinho.
-
-Rode com `make integration-test` (sobe a infra necessária automaticamente antes de executar).
-
-## Cobertura de testes
-
-Configurado com **JaCoCo**, gate mínimo de **90% de cobertura de instruções**, que falha o build (`./gradlew check`) se não for atingido. Um resumo legível é impresso diretamente no output do Gradle (sem precisar abrir o relatório HTML), com contagem por tipo de métrica (instruções, branches, linhas, complexidade, métodos, classes) e o veredito do gate.
-
-Relatório HTML completo em `build/reports/jacoco/test/html/index.html` após rodar `./gradlew test` ou `make test`.

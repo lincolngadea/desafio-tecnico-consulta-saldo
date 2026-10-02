@@ -163,7 +163,7 @@ context: |
   pull them all out of the load balancer together).
   In Boot 4 tests, metrics and tracing instrumentation are off without @AutoConfigureMetrics and @AutoConfigureTracing; MockMvc
   tests of the Actuator use management.server.port= (empty, same port as the API) and tests with a real server use
-  management.server.port=0.
+  management.server.port=0; README.md has static tests (ReadmeTest: sections, ADRs, and the make targets, env vars and test classes it cites) that run in `./gradlew check`.
   Tests: unit in src/test/kotlin (mirrors main packages, no infra, lambda fakes for ports, Mockito for AWS client,
   MockMvc for web, replacing the input port by an @Primary fake when the output port has a @Primary decorator or
   uses a value class) via `./gradlew check` with JaCoCo gate >= 90% instructions; integration in
