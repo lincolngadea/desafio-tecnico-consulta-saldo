@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1
-# L10 base e L28 runtime: tags completas tornam as imagens reprodutíveis sem acompanhar uma versão flutuante
+# L12 base e L31 runtime: tags completas tornam as imagens reprodutíveis sem acompanhar uma versão flutuante
 #     (add-observability design D8).
-# L17-L22 test: documentos invalidam a verificação sem entrar no builder/runtime
-#     (enforce-hexagonal-architecture design D5). Enunciado: O que será avaliado → Testes
-# L30-L37 runtime: usuário sem root limita privilégios; flags limitam a JVM ao contêiner e a forma exec entrega
+# L14 base: o glob copia o gradle.properties só se ele existir, para o build e o CodeQlWorkflowTest verem o mesmo
+#     arquivo que o host (fix-codeql-build design D7).
+# L19-L25 test: documentos e workflows invalidam a verificação sem entrar no builder/runtime
+#     (enforce-hexagonal-architecture design D5; fix-codeql-build design D7). Enunciado: O que será avaliado → Testes
+# L33-L40 runtime: usuário sem root limita privilégios; flags limitam a JVM ao contêiner e a forma exec entrega
 #     SIGTERM à JVM para o encerramento gracioso (add-observability design D8).
 # Enunciado: O que será avaliado → Production readiness
 
 FROM eclipse-temurin:21.0.12_8-jdk-noble AS base
 WORKDIR /workspace
-COPY gradlew build.gradle.kts settings.gradle.kts ./
+COPY gradlew build.gradle.kts settings.gradle.kts gradle.propertie[s] ./
 COPY gradle gradle
 RUN chmod +x gradlew
 COPY src src
@@ -19,6 +21,7 @@ COPY README.md CLAUDE.md Makefile Dockerfile .dockerignore docker-compose.yml ./
 COPY infra infra
 COPY openspec openspec
 COPY http/hello.http http/hello.http
+COPY .github .github
 RUN --mount=type=cache,target=/root/.gradle ./gradlew check --no-daemon
 
 FROM base AS builder

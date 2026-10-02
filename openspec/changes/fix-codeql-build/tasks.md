@@ -1,0 +1,31 @@
+## 1. Confirmação da causa (pré-condição, design D5)
+
+- [x] 1.1 Obter o log do passo *Autobuild* da run 37041862434. A API respondeu `403` (sem admin), mas o usuário forneceu o link de log bruto. Resultado: o autobuild rodou `testClasses` e travou em `> Task :compileKotlin` das 17:38:30 até o cancelamento às 20:10:39, sem OOM nem erro de toolchain. A hipótese está confirmada e registrada no design D5
+- [x] 1.2 Pedir ao usuário que cancele a run presa, e verificar pela API pública do GitHub que ela saiu de `in_progress` (verificado: `completed`/`cancelled` às 20:10:57 UTC)
+
+## 2. Workflow do CodeQL (TDD)
+
+- [x] 2.1 (vermelho: 4 falhas e 1 aprovado, o do `gradle.properties`, que não existe) Criar `CodeQlWorkflowTest` em `src/test/kotlin/br/com/itau/challenge/codescanning`, lendo `.github/workflows/codeql.yml` com SnakeYAML, com um teste por cenário de arquivo da spec `code-scanning`: build manual sem autobuild; build cobre todas as árvores de fonte; compilação em processo com um único worker; job declara timeout de no máximo 30; build local não herda as configurações. Rodar `./gradlew test --tests '*CodeQlWorkflowTest'` e registrar o vermelho dos quatro primeiros contra o workflow atual
+- [x] 2.2 Alterar `.github/workflows/codeql.yml`: `build-mode: manual` no `init`, remover o passo `autobuild`, adicionar o passo `./gradlew testClasses integrationTestClasses --no-daemon -Pkotlin.compiler.execution.strategy=in-process --max-workers=1` e `timeout-minutes: 30` no job, sem `setup-gradle` (design D1 a D4). Verificar que `CodeQlWorkflowTest` passa
+- [x] 2.3 Rodar localmente o mesmo comando de build do workflow e verificar que as três árvores compilam sem erro (em bash, como no runner: `compileKotlin`, `compileTestKotlin` e `compileIntegrationTestKotlin` em 40 s, e o `--info` mostra `IN_PROCESS strategy`)
+- [x] 2.4 Escrever o cabeçalho `#` do `codeql.yml` e o cabeçalho `/* */` do `CodeQlWorkflowTest` (Art. 6, design D8), com linhas finais, porquê real, `Spec:` no teste e `Enunciado: n/a (fix-codeql-build design Dn)`, e conferir as linhas contra os arquivos
+
+## 3. Verificação do repositório (TDD)
+
+- [x] 3.1 (vermelho: com `timeout-minutes: 45` só no `codeql.yml`, `:test` ficou UP-TO-DATE e o build passou) Antes de mudar os inputs, alterar só o `codeql.yml` numa cópia temporária do projeto depois de um `test` verde e registrar que `test` fica UP-TO-DATE (vermelho do cenário *Mudança somente em infraestrutura reexecuta a verificação*)
+- [x] 3.2 Adicionar `fileTree(".github")` aos inputs `repositoryInventories` da task `test` no `build.gradle.kts` e atualizar o cabeçalho. Repetir a prova da 3.1, verificando que `test` é reexecutada, e uma execução sem mudança, verificando que continua UP-TO-DATE (feito, com `gradle.properties` também em `repositoryDocuments`, porque o teste o lê. Sem mudança: UP-TO-DATE. Só `codeql.yml`: reexecuta e falha no timeout. `gradle.properties` com a chave: reexecuta e falha. O cabeçalho não muda de linhas, e a entrada `L153-L164 tasks.test` continua válida)
+- [x] 3.3 Adicionar `COPY .github .github` ao estágio `test` do `Dockerfile` e atualizar o cabeçalho. Executar `docker build --target test` (o comando de `make test`) sem cache da verificação, verificando que `CodeQlWorkflowTest` passa no contêiner e o gate ≥90% é aplicado (feito com `--no-cache-filter test`: 5/5, gate PASS em 95,3%, BUILD SUCCESSFUL)
+- [x] 3.4 Inspecionar a imagem `runtime` e verificar que ela não contém `.github` nem as demais entradas de teste (`/app` só tem `app.jar`; a busca só encontrou o `README.md` do pacote de fontes do sistema)
+
+## 4. Fechamento e validação externa
+
+- [x] 4.1 Rodar `./gradlew check` e verificar que está verde, com o gate de cobertura ≥90% (379 testes, 0 falhas, gate PASS em 95,3%)
+- [x] 4.2 Conferir o Art. 11 contra `.challenge/enunciado.md`: listar os itens tocados (nenhum contrato, nenhum critério de avaliação) com evidência, e os itens fora de escopo. O enunciado não menciona CI nem CodeQL, e não há divergência. Itens tocados e evidência:
+  - *Como começar* → starter-kit "com testes, cobertura": `docker build --target test` (o `make test`) verde, gate em 95,3% (3.3)
+  - *O que será avaliado* → **Testes**: `./gradlew check` com 379 testes e 0 falhas (4.1)
+  - *Como entregar* → **Não** inclua esse arquivo: o diff não toca `.challenge/`, que continua ignorado
+  - Fora do escopo, não tocados: contratos de payload/request/response, modelagem, concorrência, resiliência, cenários adversos e production readiness
+- [x] 4.3 (2 rodadas. Rodada 1: 2 ajustes, o `gradle.properties` fora do D7 e do Docker e o cabeçalho de `tasks.test` sem D7, mais 4 sugestões, todos corrigidos e nenhum rejeitado. Rodada 2: aprovada sem achados) Revisão por agente independente, conforme o procedimento do CLAUDE.md (Agent com contexto limpo, somente leitura, com proposal/design/specs/tasks, diff, CLAUDE.md e enunciado; no máximo 3 rodadas), corrigindo os bloqueantes e ajustes e reexecutando `./gradlew check`
+- [x] 4.4 Avaliar pela Regra 3 do CLAUDE.md se `openspec/project.md` e o `context:` do `openspec/config.yaml` precisam registrar a restrição do CodeQL (build manual, Kotlin em processo, um worker). Se sim, atualizar os dois em sincronia e validar com `openspec list --json` (feito nos dois arquivos: CI workflows nos inputs e nos testes estáticos, e a restrição do CodeQL, inclusive sem cache Gradle, que o teste não cobre e que o Art. 8 levaria a igualar aos outros workflows. `openspec list --json` válido)
+- [x] 4.5 Apresentar ao usuário os comentários novos e alterados (`arquivo:linha` e texto) e obter o aval antes do commit
+- [ ] 4.6 Com autorização do usuário, fazer um único commit `ci(codeql): ...` e o push na branch `kotlin`. Acompanhar a execução do CodeQL pela API até a conclusão com sucesso dentro do timeout e registrar a run e a duração como evidência do cenário *Execução real conclui* e da causa (design D5). Se falhar ou atingir o timeout, analisar o log da nova execução e revisar o plano com o usuário antes do archive

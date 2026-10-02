@@ -1,3 +1,12 @@
+# L33 analyze.timeout-minutes: um novo travamento falha em minutos, e não após as 6 h padrão da plataforma
+#     (fix-codeql-build design D4).
+# L44-L48 Initialize CodeQL: Kotlin exige build, e o autobuild não aceita parâmetros; o build manual torna
+#     explícito e testável o comando que o extrator rastreia.
+# L50-L51 Compile all source sets: o extrator Kotlin é single-threaded e travou o compileKotlin por horas;
+#     em processo e com um worker a compilação termina. Sem setup-gradle, porque uma task restaurada do cache
+#     não compila e não seria extraída (fix-codeql-build design D2, D3, D5).
+# Enunciado: n/a (fix-codeql-build design D1)
+
 name: CodeQL
 
 on:
@@ -21,6 +30,7 @@ jobs:
   analyze:
     name: Analyze (java-kotlin)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -35,9 +45,10 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
+          build-mode: manual
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
+      - name: Compile all source sets
+        run: ./gradlew testClasses integrationTestClasses --no-daemon -Pkotlin.compiler.execution.strategy=in-process --max-workers=1
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4

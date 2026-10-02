@@ -125,7 +125,7 @@ context: |
   adapter/composition. Architecture checks auto-discover all production contexts including partial ones, exclude
   technical infrastructure/composition, reject empty scope and share the policy with negative fixtures for aliases
   and fully qualified references. Konsist's existing transitive Kotlin parser is exposed to test compilation.
-  Static tests declare external documents, OpenSpec, infra/http and source inventories as Gradle inputs, tracking
+  Static tests declare external documents, OpenSpec, infra/http, CI workflows and source inventories as Gradle inputs, tracking
   creation/rename/removal without permanent reruns or private inputs. Docker test gets them through selective COPY;
   builder/runtime remain separate.
   Conventions: code in English (identifiers, exception messages, test names), comments and docs in Portuguese;
@@ -166,7 +166,7 @@ context: |
   ENTRYPOINT (the JVM is PID 1 and receives SIGTERM), stop_grace_period greater than spring.lifecycle.timeout-per-shutdown-phase.
   In Boot 4 tests, metrics and tracing instrumentation are off without @AutoConfigureMetrics and @AutoConfigureTracing; MockMvc
   tests of the Actuator use management.server.port= (empty, same port as the API) and tests with a real server use
-  management.server.port=0; infra files (Dockerfile, docker-compose.yml, scripts) and README.md (ReadmeTest: sections, ADRs, and the make targets, env vars and test classes it cites) have static tests that run in `./gradlew check`.
+  management.server.port=0; infra files (Dockerfile, docker-compose.yml, scripts), the CodeQL workflow and README.md (ReadmeTest: sections, ADRs, and the make targets, env vars and test classes it cites) have static tests that run in `./gradlew check`.
   Tests: unit in src/test/kotlin (mirrors main packages, no infra, lambda fakes for ports, Mockito for AWS client,
   MockMvc for web, replacing the input port by an @Primary fake when the output port has a @Primary decorator or
   uses a value class) via `./gradlew check` with JaCoCo gate >= 90% instructions; integration in
@@ -174,6 +174,10 @@ context: |
   Main flows AND corner cases (duplicate, out-of-order, unknown account, invalid data, dependency down) must be
   tested.
   Test names: backtick `should ... when ...`, AAA layout, kotlin.test asserts.
+  CI: GitHub Actions on every push/PR to main/kotlin (compile, check + integration, Docker image build, CodeQL).
+  CodeQL uses build-mode manual with Kotlin compiled in-process and a single Gradle worker, and NO setup-gradle or
+  other Gradle cache: the Kotlin extractor is single-threaded and hung autobuild at compileKotlin, and a task restored
+  from cache is not extracted; never go back to autobuild nor align CodeQL with the other workflows on this point.
   Git: main branch `kotlin`; Conventional Commits 1.0.0 `<type>(<scope>)!: <description>` (types feat/fix/refactor/
   perf/test/docs/build/ci/chore/style/revert; scope = bounded context or area; type/scope in English, description,
   body and footer in PORTUGUESE, imperative, lowercase, no period, header <= 72 chars); one commit per OpenSpec

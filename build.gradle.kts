@@ -1,18 +1,19 @@
 /*
- * L51-L55 dependencies: Actuator, Prometheus e tracing usam o BOM do Boot; a ponte de métricas do circuito tem
+ * L52-L56 dependencies: Actuator, Prometheus e tracing usam o BOM do Boot; a ponte de métricas do circuito tem
  *     versão explícita porque não é gerenciada, sem exportador de traces (add-observability design D11).
- * L57-L58 dependencies: os módulos de teste habilitam métricas e tracing reais nos testes de observabilidade.
- * L103 localAwsCredentials: o DynamoDB Local aceita qualquer par não vazio; credenciais de teste ficam no ambiente
- *     para exercitar a cadeia padrão do SDK, sem credenciais no código de produção (add-observability design D9).
- * L105-L107 tasks.bootRun: o desenvolvimento local usa a mesma cadeia de credenciais da imagem.
- * L109-L151 tasks.withType<Test>: os dois source sets recebem as credenciais locais, sem depender do perfil AWS
- *     pessoal de quem executa os testes.
- * L61 dependencies: expõe no compile de teste o parser já transitivo do Konsist para verificar referências
+ * L58-L59 dependencies: os módulos de teste habilitam métricas e tracing reais nos testes de observabilidade.
+ * L62 dependencies: expõe no compile de teste o parser já transitivo do Konsist para verificar referências
  *     qualificadas pela API pública, sem um parser próprio (enforce-hexagonal-architecture design D2).
- * L154-L157 tasks.test.systemProperty: o worker não expõe os jars em java.class.path; o classpath real vai em
+ * L104 localAwsCredentials: o DynamoDB Local aceita qualquer par não vazio; credenciais de teste ficam no ambiente
+ *     para exercitar a cadeia padrão do SDK, sem credenciais no código de produção (add-observability design D9).
+ * L106-L108 tasks.bootRun: o desenvolvimento local usa a mesma cadeia de credenciais da imagem.
+ * L110-L152 tasks.withType<Test>: os dois source sets recebem as credenciais locais, sem depender do perfil AWS
+ *     pessoal de quem executa os testes.
+ * L154-L165 tasks.test: os testes estáticos leem fontes, documentos e workflows fora do classpath; declarar as
+ *     árvores preserva a invalidação por arquivo novo/renomeado/removido e o reaproveitamento sem mudanças. O
+ *     gradle.properties entra mesmo ausente, porque criá-lo deve invalidar o teste (fix-codeql-build design D7).
+ * L155-L158 tasks.test.systemProperty: o worker não expõe os jars em java.class.path; o classpath real vai em
  *     arquivo, pois como propriedade de sistema estoura o limite de linha de comando do Windows.
- * L153-L164 tasks.test: os testes estáticos leem fontes e documentos fora do classpath; declarar as árvores
- *     preserva a invalidação por arquivo novo/renomeado/removido e o reaproveitamento sem mudanças.
  *
  * Enunciado: O que será avaliado → Production readiness
  */
@@ -155,10 +156,10 @@ tasks.test {
 	val architectureClasspathFile = File(temporaryDir, "architecture-classpath.txt")
 	systemProperty("architecture.test.classpath.file", architectureClasspathFile.absolutePath)
 	doFirst { architectureClasspathFile.writeText(architectureClasspath.asPath) }
-	inputs.files("README.md", "CLAUDE.md", "Makefile", "Dockerfile", ".dockerignore", "docker-compose.yml")
+	inputs.files("README.md", "CLAUDE.md", "Makefile", "Dockerfile", ".dockerignore", "docker-compose.yml", "gradle.properties")
 		.withPropertyName("repositoryDocuments")
 		.withPathSensitivity(PathSensitivity.RELATIVE)
-	inputs.files(fileTree("openspec"), fileTree("infra"), fileTree("http"), fileTree("src"))
+	inputs.files(fileTree("openspec"), fileTree("infra"), fileTree("http"), fileTree("src"), fileTree(".github"))
 		.withPropertyName("repositoryInventories")
 		.withPathSensitivity(PathSensitivity.RELATIVE)
 }
