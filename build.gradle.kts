@@ -9,9 +9,9 @@
  *     pessoal de quem executa os testes.
  * L61 dependencies: expõe no compile de teste o parser já transitivo do Konsist para verificar referências
  *     qualificadas pela API pública, sem um parser próprio (enforce-hexagonal-architecture design D2).
- * L154 tasks.test.systemProperty: o worker Gradle não expõe os jars em java.class.path; a política usa o
- *     classpath real para reconhecer funções qualificadas de frameworks, sem whitelist manual de namespaces.
- * L153-L161 tasks.test: os testes estáticos leem fontes e documentos fora do classpath; declarar as árvores
+ * L154-L157 tasks.test.systemProperty: o worker não expõe os jars em java.class.path; o classpath real vai em
+ *     arquivo, pois como propriedade de sistema estoura o limite de linha de comando do Windows.
+ * L153-L164 tasks.test: os testes estáticos leem fontes e documentos fora do classpath; declarar as árvores
  *     preserva a invalidação por arquivo novo/renomeado/removido e o reaproveitamento sem mudanças.
  *
  * Enunciado: O que será avaliado → Production readiness
@@ -151,7 +151,10 @@ tasks.withType<Test> {
 }
 
 tasks.test {
-	systemProperty("architecture.test.classpath", configurations.testRuntimeClasspath.get().asPath)
+	val architectureClasspath = files(configurations.testRuntimeClasspath)
+	val architectureClasspathFile = File(temporaryDir, "architecture-classpath.txt")
+	systemProperty("architecture.test.classpath.file", architectureClasspathFile.absolutePath)
+	doFirst { architectureClasspathFile.writeText(architectureClasspath.asPath) }
 	inputs.files("README.md", "CLAUDE.md", "Makefile", "Dockerfile", ".dockerignore", "docker-compose.yml")
 		.withPropertyName("repositoryDocuments")
 		.withPathSensitivity(PathSensitivity.RELATIVE)
