@@ -1,0 +1,58 @@
+[
+  {
+    "case": "warm",
+    "testUpToDate": false
+  },
+  {
+    "case": "unchanged",
+    "testUpToDate": true
+  },
+  {
+    "case": "README_md",
+    "testUpToDate": true
+  },
+  {
+    "case": "docker-compose_yml",
+    "testUpToDate": true
+  },
+  {
+    "case": "Dockerfile",
+    "testUpToDate": true
+  },
+  {
+    "case": "_dockerignore",
+    "testUpToDate": true
+  },
+  {
+    "case": "Makefile",
+    "testUpToDate": true
+  },
+  {
+    "case": "infra_redpanda_ingestion-topics_sh",
+    "testUpToDate": true
+  },
+  {
+    "case": "source-create",
+    "testUpToDate": true
+  },
+  {
+    "case": "source-rename",
+    "testUpToDate": true
+  },
+  {
+    "case": "source-remove",
+    "testUpToDate": true
+  },
+  {
+    "case": "openspec-create",
+    "testUpToDate": true
+  },
+  {
+    "case": "openspec-rename",
+    "testUpToDate": true
+  },
+  {
+    "case": "openspec-remove",
+    "testUpToDate": true
+  }
+]

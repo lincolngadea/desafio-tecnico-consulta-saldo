@@ -1,0 +1,125 @@
+[
+  {
+    "case": "literal-example-published",
+    "status": 200,
+    "body": {
+      "id": "5b19c8b6-0cc4-4c72-a989-0c2ee15fa975",
+      "owner": "315e3cfe-f4af-4cd2-b298-a449e614349a",
+      "balance": {
+        "amount": 183.12,
+        "currency": "BRL"
+      },
+      "updated_at": "2025-07-04T12:02:44.589-03:00"
+    }
+  },
+  {
+    "case": "success-contract",
+    "status": 200,
+    "body": {
+      "id": "ce1d7793-278c-4869-9fda-00f90042d062",
+      "owner": "315e3cfe-f4af-4cd2-b298-a449e614349a",
+      "balance": {
+        "amount": 183.12,
+        "currency": "BRL"
+      },
+      "updated_at": "2025-07-04T12:02:44.589-03:00"
+    }
+  },
+  {
+    "case": "duplicate-and-out-of-order",
+    "balance": 183.12,
+    "unchanged": true
+  },
+  {
+    "case": "declined-updates-snapshot",
+    "body": {
+      "id": "ce1d7793-278c-4869-9fda-00f90042d062",
+      "owner": "315e3cfe-f4af-4cd2-b298-a449e614349a",
+      "balance": {
+        "amount": 211.45,
+        "currency": "BRL"
+      },
+      "updated_at": "2025-07-04T12:02:45.589-03:00"
+    }
+  },
+  {
+    "case": "invalid-uuid",
+    "status": 400,
+    "body": {
+      "detail": "accountId must be a canonical UUID",
+      "instance": "/balances/not-a-uuid",
+      "status": 400,
+      "title": "Bad Request",
+      "traceId": "eff4bd32897c84a62e0930d425396210"
+    }
+  },
+  {
+    "case": "missing-account",
+    "status": 404,
+    "body": {
+      "detail": "No balance found for account c491758e-4cc9-4f2a-b0f9-33da1ce681f9",
+      "instance": "/balances/c491758e-4cc9-4f2a-b0f9-33da1ce681f9",
+      "status": 404,
+      "title": "Not Found",
+      "traceId": "6b7dc8c075e834e97e64f5a6b2f6a6f7"
+    }
+  },
+  {
+    "case": "hello",
+    "status": 200,
+    "body": {
+      "message": "Greetings, Ana!"
+    }
+  },
+  {
+    "case": "openapi",
+    "status": 200,
+    "responses": [
+      "200",
+      "400",
+      "404",
+      "503",
+      "500"
+    ]
+  },
+  {
+    "case": "swagger-served",
+    "status": 200,
+    "note": "HTML/assets; sem confer\u00eancia visual"
+  },
+  {
+    "case": "liveness",
+    "status": 200,
+    "body": {
+      "status": "UP"
+    }
+  },
+  {
+    "case": "readiness",
+    "status": 200,
+    "body": {
+      "status": "UP"
+    }
+  },
+  {
+    "case": "prometheus",
+    "status": 200,
+    "metricsFound": true
+  },
+  {
+    "case": "storage-unavailable",
+    "status": 503,
+    "retryAfter": "5",
+    "body": {
+      "detail": "The balance storage is temporarily unavailable. Try again later.",
+      "instance": "/balances/ce1d7793-278c-4869-9fda-00f90042d062",
+      "status": 503,
+      "title": "Service Unavailable",
+      "traceId": "ee570f3b3968da6f2b7183e178289e1b"
+    }
+  },
+  {
+    "case": "restore-dynamodb",
+    "exitCode": 0
+  }
+]

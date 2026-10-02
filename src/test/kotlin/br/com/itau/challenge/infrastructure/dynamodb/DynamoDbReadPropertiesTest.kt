@@ -6,7 +6,7 @@
  *     leitura cabe no orçamento de latência
  * Enunciado: O que será avaliado → Resiliência
  */
-package br.com.itau.challenge.hello.adapter.output.dynamodb
+package br.com.itau.challenge.infrastructure.dynamodb
 
 import org.junit.jupiter.api.Test
 import org.springframework.boot.context.properties.EnableConfigurationProperties

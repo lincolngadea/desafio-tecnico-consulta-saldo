@@ -1,8 +1,27 @@
+# L9-L10 http: mantém o alvo local usado pelos links do README.
+# L17-L21 openspec: somente contexto, changes e specs participam do inventário e dos links dos testes.
+# L23-L27 exclusões privadas: material pessoal e credenciais não participam de nenhuma imagem de teste ou runtime.
+# Enunciado: O que será avaliado → Production readiness
 .gradle
 .idea
 .kotlin
 build
-http
+http/*
+!http/hello.http
 *.iml
 .git
 HELP.md
+.challenge
+.claude
+.local
+openspec/*
+!openspec/project.md
+!openspec/config.yaml
+!openspec/changes
+!openspec/specs
+
+.codex
+.env
+.env.*
+*.pem
+*.key

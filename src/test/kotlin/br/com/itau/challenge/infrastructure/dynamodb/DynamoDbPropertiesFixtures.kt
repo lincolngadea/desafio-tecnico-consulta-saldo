@@ -7,7 +7,7 @@
  * Spec: n/a (add-balance-query-api design D6)
  * Enunciado: O que será avaliado → Resiliência
  */
-package br.com.itau.challenge.hello.adapter.output.dynamodb
+package br.com.itau.challenge.infrastructure.dynamodb
 
 import java.time.Duration
 

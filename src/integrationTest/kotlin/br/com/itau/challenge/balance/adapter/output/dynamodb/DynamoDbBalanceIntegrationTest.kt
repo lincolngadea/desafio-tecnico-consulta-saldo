@@ -28,9 +28,9 @@ import br.com.itau.challenge.balance.domain.model.OwnerId
 import br.com.itau.challenge.balance.domain.model.SnapshotSaveResult
 import br.com.itau.challenge.balance.domain.model.SnapshotVersion
 import br.com.itau.challenge.balance.domain.model.TransactionId
-import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbConfig
-import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbProperties
-import br.com.itau.challenge.hello.adapter.output.dynamodb.readProfile
+import br.com.itau.challenge.infrastructure.dynamodb.DynamoDbConfig
+import br.com.itau.challenge.infrastructure.dynamodb.DynamoDbProperties
+import br.com.itau.challenge.infrastructure.dynamodb.readProfile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

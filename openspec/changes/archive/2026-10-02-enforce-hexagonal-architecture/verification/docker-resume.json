@@ -1,0 +1,12 @@
+{
+  "ssh": "acessível; comando remoto executado",
+  "dockerDesktopStart": "exit 0; Starting Docker Desktop",
+  "dockerDesktopStatus": "exit 1; Could not retrieve status. Is Docker Desktop running?",
+  "wslDockerDesktop": "Stopped",
+  "makeTest": "exit 2; não chegou ao build, API dockerDesktopLinuxEngine indisponível",
+  "composePs": "exit 1; pipe dockerDesktopLinuxEngine não encontrado",
+  "isolatedContext": "itau-hexagonal-final-20261002-092916",
+  "cacheFixture": "arquivos original/document diferem somente em README.md; 253 arquivos; workspace preservado",
+  "completedTasks": 26,
+  "totalTasks": 32
+}

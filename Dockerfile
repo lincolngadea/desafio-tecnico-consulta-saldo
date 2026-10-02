@@ -1,4 +1,7 @@
 # syntax=docker/dockerfile:1
+# L13-L18 test: os testes leem arquivos do repositório; a cópia fica neste estágio para que documentos
+#     invalidem a verificação sem participar do builder/runtime (enforce-hexagonal-architecture design D5).
+# Enunciado: O que será avaliado → Testes
 
 FROM eclipse-temurin:21-jdk AS base
 WORKDIR /workspace
@@ -8,6 +11,10 @@ RUN chmod +x gradlew
 COPY src src
 
 FROM base AS test
+COPY README.md CLAUDE.md Makefile Dockerfile .dockerignore docker-compose.yml ./
+COPY infra infra
+COPY openspec openspec
+COPY http/hello.http http/hello.http
 RUN --mount=type=cache,target=/root/.gradle ./gradlew check --no-daemon
 
 FROM base AS builder

@@ -47,7 +47,7 @@ context: |
   hexagonal architecture); adverse/edge scenarios in the API; production readiness (logging, metrics,
   containerization); any pattern/algorithm not implemented must be DOCUMENTED with what could be done and why.
   Working rules (MANDATORY): TDD — every spec `#### Scenario` becomes a test BEFORE production code;
-  money is BigDecimal end to end (never Double/Float); domain has no framework dependency (no Spring,
+  money is BigDecimal end to end (never Double/Float); core (domain, port, application) has no framework or cross-context core dependency (no Spring,
   AWS SDK, Kafka, Jackson); ONE commit per OpenSpec change (Conventional Commits); CONTRACTS come from
   `.challenge/enunciado.md` (topic payload, request, response): every change touching a contract must check
   field names, types and formats there (snake_case, µs, ISO 8601, UUID) and never invent, rename or "improve"
@@ -116,11 +116,17 @@ context: |
   Kafka via Redpanda (localhost:19092, topic auto-creation DISABLED), Docker Compose.
   Architecture: hexagonal per bounded context under br.com.itau.challenge.<ctx>/
   {domain/{model,exception}, port/{input,output}, application, adapter/{input/{web,kafka},output/dynamodb}}.
-  domain has no Spring; ports are `fun interface`; services are @Service implementing input ports;
-  adapters convert DTOs to domain; application never imports adapter. HexagonalArchitectureTest (Konsist, root
-  package) enforces this: the layer rule matches `..domain..`/`..port..`/... across all contexts at once; the
-  tests forbidding framework imports in domain and ports are parameterized per context — new contexts must be
-  added to the test's context list.
+  core (domain/port/application) depends only on JDK/Kotlin and its own context core, without frameworks.
+  Ports are fun interfaces; plain Kotlin services implement input ports. Spring composes them externally with
+  separate context configurations; shared DynamoDB configuration is neutral infrastructure outside hello.
+  Adapters translate DTOs using domain models and access use cases through ports, never application/composition.
+  Domain has no outward dependency; port never imports application/adapter/composition; application never imports
+  adapter/composition. Architecture checks auto-discover all production contexts including partial ones, exclude
+  technical infrastructure/composition, reject empty scope and share the policy with negative fixtures for aliases
+  and fully qualified references. Konsist's existing transitive Kotlin parser is exposed to test compilation.
+  Static tests declare external documents, OpenSpec, infra/http and source inventories as Gradle inputs, tracking
+  creation/rename/removal without permanent reruns or private inputs. Docker test gets them through selective COPY;
+  builder/runtime remain separate.
   Conventions: code in English (identifiers, exception messages, test names), comments and docs in Portuguese;
   constructor injection; config via ${ENV:default} in application.yaml + docker-compose env; single config value
   via constructor @Value, a group that would exceed 3 params via an immutable @ConfigurationProperties data
@@ -139,8 +145,7 @@ context: |
   probes and metrics, separate from the API), LOG_FORMAT (logstash), AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (required;
   `local` in the Gradle test/integrationTest/bootRun tasks; credentials never in code).
   DynamoDB tables (created idempotently by infra/dynamodb/seed.sh): GreetingMessages (GREETING_TABLE_NAME) and
-  AccountBalances (BALANCE_TABLE_NAME). There is one DynamoDbClient per access profile, both in DynamoDbConfig
-  (+ DynamoDbProperties) and to be reused, never duplicated: dynamoDbClient (@Primary; write and hello) and
+  AccountBalances (BALANCE_TABLE_NAME). There is one DynamoDbClient per access profile, both in neutral technical infrastructure outside hello and to be reused, never duplicated: dynamoDbClient (@Primary; write and hello) and
   readDynamoDbClient (balance reads; short budget, at most 1 retry; startup fails if maxAttempts > 2 or
   maxAttempts x api-call-attempt > api-call); explicit timeouts/retries via DYNAMODB_CONNECTION_TIMEOUT (500ms),
   DYNAMODB_SOCKET_TIMEOUT (1s), DYNAMODB_API_CALL_ATTEMPT_TIMEOUT (1s), DYNAMODB_API_CALL_TIMEOUT (3s),

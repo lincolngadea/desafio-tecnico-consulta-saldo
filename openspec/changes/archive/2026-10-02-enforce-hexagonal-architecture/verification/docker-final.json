@@ -1,0 +1,46 @@
+{
+  "context": "itau-hexagonal-final-20261002-092916",
+  "makeTest": {
+    "exitCode": 0,
+    "tests": 374,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "instructionCoveragePercent": 95.3,
+    "log": "/tmp/hexagonal-final-make-test.log"
+  },
+  "noCacheTest": {
+    "exitCode": 0,
+    "option": "--no-cache-filter test",
+    "tests": 374,
+    "instructionCoveragePercent": 95.3,
+    "log": "/tmp/hexagonal-final-no-cache.log"
+  },
+  "documentInvalidation": {
+    "onlyChangedFile": "README.md",
+    "change": "trailing newline in isolated copy",
+    "baseStepsCached": 5,
+    "checkStepCached": false,
+    "tests": 374,
+    "instructionCoveragePercent": 95.3,
+    "log": "/tmp/hexagonal-final-document-cache.log"
+  },
+  "testInspection": {
+    "requiredInputsPresent": true,
+    "personalFilesAbsent": true,
+    "xmlTotalsVerified": true,
+    "logs": [
+      "/tmp/hexagonal-final-test-inspection.log",
+      "/tmp/hexagonal-final-nocache-inspection.log",
+      "/tmp/hexagonal-final-document-inspection.log"
+    ]
+  },
+  "runtimeInspection": {
+    "onlyApplicationFile": "/app/app.jar",
+    "documentsSourcesTestsPersonalFilesAbsent": true,
+    "userId": 10001,
+    "log": "/tmp/hexagonal-final-runtime-inspection.log"
+  },
+  "servicesDuringTests": "compose ps vazio antes dos builds; sem serviços DynamoDB/Kafka",
+  "workspacePreserved": true
+}

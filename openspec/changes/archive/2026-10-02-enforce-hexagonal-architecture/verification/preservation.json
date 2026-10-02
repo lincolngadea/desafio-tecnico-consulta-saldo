@@ -1,0 +1,12 @@
+{
+  "README.md": true,
+  "Makefile": true,
+  "docker-compose.yml": true,
+  "infra/redpanda/ingestion-topics.sh": true,
+  "src/test/kotlin/br/com/itau/challenge/observability/ComposeFileTest.kt": true,
+  "src/test/kotlin/br/com/itau/challenge/observability/DockerfileTest.kt": true,
+  "src/test/kotlin/br/com/itau/challenge/observability/IngestionTopicsScriptTest.kt": true,
+  "src/test/kotlin/br/com/itau/challenge/documentation/ReadmeTest.kt": true,
+  "src/test/kotlin/br/com/itau/challenge/documentation/RepositoryFacts.kt": true,
+  "src/test/kotlin/br/com/itau/challenge/documentation/MarkdownText.kt": true
+}

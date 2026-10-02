@@ -1,12 +1,18 @@
 /*
- * L45-L49 dependencies: Actuator, Prometheus e tracing usam o BOM do Boot; a ponte de métricas do circuito tem
+ * L51-L55 dependencies: Actuator, Prometheus e tracing usam o BOM do Boot; a ponte de métricas do circuito tem
  *     versão explícita porque não é gerenciada, sem exportador de traces (add-observability design D11).
- * L51-L52 dependencies: os módulos de teste habilitam métricas e tracing reais nos testes de observabilidade.
- * L96 localAwsCredentials: o DynamoDB Local aceita qualquer par não vazio; credenciais de teste ficam no ambiente
+ * L57-L58 dependencies: os módulos de teste habilitam métricas e tracing reais nos testes de observabilidade.
+ * L103 localAwsCredentials: o DynamoDB Local aceita qualquer par não vazio; credenciais de teste ficam no ambiente
  *     para exercitar a cadeia padrão do SDK, sem credenciais no código de produção (add-observability design D9).
- * L98-L100 tasks.bootRun: o desenvolvimento local usa a mesma cadeia de credenciais da imagem.
- * L102-L144 tasks.withType<Test>: os dois source sets recebem as credenciais locais, sem depender do perfil AWS
+ * L105-L107 tasks.bootRun: o desenvolvimento local usa a mesma cadeia de credenciais da imagem.
+ * L109-L151 tasks.withType<Test>: os dois source sets recebem as credenciais locais, sem depender do perfil AWS
  *     pessoal de quem executa os testes.
+ * L61 dependencies: expõe no compile de teste o parser já transitivo do Konsist para verificar referências
+ *     qualificadas pela API pública, sem um parser próprio (enforce-hexagonal-architecture design D2).
+ * L154 tasks.test.systemProperty: o worker Gradle não expõe os jars em java.class.path; a política usa o
+ *     classpath real para reconhecer funções qualificadas de frameworks, sem whitelist manual de namespaces.
+ * L153-L161 tasks.test: os testes estáticos leem fontes e documentos fora do classpath; declarar as árvores
+ *     preserva a invalidação por arquivo novo/renomeado/removido e o reaproveitamento sem mudanças.
  *
  * Enunciado: O que será avaliado → Production readiness
  */
@@ -52,6 +58,7 @@ dependencies {
 	testImplementation("org.springframework.boot:spring-boot-micrometer-tracing-test")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 	testImplementation("com.lemonappdev:konsist:0.17.3")
+	testImplementation("org.jetbrains.kotlin:kotlin-compiler-embeddable")
 	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -141,6 +148,16 @@ tasks.withType<Test> {
 			}
 		},
 	)
+}
+
+tasks.test {
+	systemProperty("architecture.test.classpath", configurations.testRuntimeClasspath.get().asPath)
+	inputs.files("README.md", "CLAUDE.md", "Makefile", "Dockerfile", ".dockerignore", "docker-compose.yml")
+		.withPropertyName("repositoryDocuments")
+		.withPathSensitivity(PathSensitivity.RELATIVE)
+	inputs.files(fileTree("openspec"), fileTree("infra"), fileTree("http"), fileTree("src"))
+		.withPropertyName("repositoryInventories")
+		.withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 val jacocoCoverageExclusions =

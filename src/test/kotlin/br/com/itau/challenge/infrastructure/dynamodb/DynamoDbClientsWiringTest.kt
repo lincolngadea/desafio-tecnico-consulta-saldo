@@ -6,7 +6,7 @@
  * Spec: Cliente de leitura com timeouts curtos e configuráveis
  * Enunciado: O que será avaliado → Resiliência
  */
-package br.com.itau.challenge.hello.adapter.output.dynamodb
+package br.com.itau.challenge.infrastructure.dynamodb
 
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired

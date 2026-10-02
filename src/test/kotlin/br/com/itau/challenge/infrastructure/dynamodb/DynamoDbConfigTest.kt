@@ -7,7 +7,7 @@
  *     repete no máximo uma vez; Configuração só por variável de ambiente
  * Enunciado: O que será avaliado → Resiliência
  */
-package br.com.itau.challenge.hello.adapter.output.dynamodb
+package br.com.itau.challenge.infrastructure.dynamodb
 
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider

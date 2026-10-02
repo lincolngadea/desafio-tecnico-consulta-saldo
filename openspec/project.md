@@ -31,7 +31,7 @@ O template traz um contexto de exemplo (`hello`) que demonstra a arquitetura, a 
 | Resiliência | Retry com backoff exponencial e jitter, error handler e DLT pelo Spring Kafka (`ExponentialBackOff`, `DefaultErrorHandler`); circuit breaker com `resilience4j-circuitbreaker` 2.4.0, de versão fixa porque o BOM do Boot não a gerencia e o Spring não tem circuit breaker |
 | Documentação de API | `springdoc-openapi-starter-webmvc-ui` 3.1.1: gera o OpenAPI (`/v3/api-docs`) e a Swagger UI (`/swagger-ui.html`) a partir das anotações dos controllers e dos DTOs, sem arquivo escrito à mão; versão fixa porque o BOM do Boot não a gerencia |
 | Observabilidade | Spring Boot Actuator e Micrometer com `micrometer-registry-prometheus`, Micrometer Tracing com a ponte OpenTelemetry **sem exportador**, e `resilience4j-micrometer` 2.4.0 (versão fixa: fora do BOM); log JSON nativo do Boot (formato `logstash`), sem biblioteca de log |
-| Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3, `kotlinx-coroutines-core` (só teste, versão do BOM do Boot, 1.10.2) para disparar gravações concorrentes em paralelo de verdade no teste de integração |
+| Testes | JUnit Jupiter 6.0.3 (gerenciado pelo BOM do Boot 4.1; o README do template diz "JUnit 5"), `kotlin-test`, Mockito 5.23 (`@MockitoBean`), MockMvc, Konsist 0.17.3 e parser Kotlin já transitivo exposto ao compile de teste para referências qualificadas, `kotlinx-coroutines-core` (só teste, versão do BOM do Boot, 1.10.2) para disparar gravações concorrentes em paralelo de verdade no teste de integração |
 | Testes de observabilidade | `spring-boot-starter-micrometer-metrics-test` e `spring-boot-micrometer-tracing-test` (as anotações `@AutoConfigureMetrics` e `@AutoConfigureTracing`) |
 | Cobertura | JaCoCo 0.8.12, gate mínimo de **90% de instruções** em `./gradlew check` |
 | Containers | Docker multi-stage + Docker Compose |
@@ -75,7 +75,7 @@ Toda configuração externa usa `${ENV_VAR:default-local}`. Os defaults apontam 
 | `logging.structured.format.console` | `LOG_FORMAT` | `logstash` (JSON) |
 | (SDK AWS) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | obrigatórias; `local` nas tarefas `test`, `integrationTest` e `bootRun` do Gradle |
 
-As credenciais AWS não ficam no código: o cliente usa a cadeia padrão do SDK. Há um `DynamoDbClient` por perfil de acesso, ambos em `DynamoDbConfig` (+ `DynamoDbProperties`), com timeouts e tentativas explícitos: o `dynamoDbClient` (`@Primary`, escrita e `hello`) e o `readDynamoDbClient` (leitura de saldo, com orçamento curto e no máximo 1 retry). Contextos novos reutilizam um deles, sem criar outro cliente. O perfil de leitura falha na subida se `maxAttempts` passar de 2 ou se `maxAttempts × api-call-attempt > api-call`.
+As credenciais AWS não ficam no código: o cliente usa a cadeia padrão do SDK. Há um `DynamoDbClient` por perfil de acesso, ambos em infraestrutura técnica neutra, fora de `hello`, com timeouts e tentativas explícitos: o `dynamoDbClient` (`@Primary`, escrita e `hello`) e o `readDynamoDbClient` (leitura de saldo, com orçamento curto e no máximo 1 retry). Contextos novos reutilizam um deles, sem criar outro cliente. O perfil de leitura falha na subida se `maxAttempts` passar de 2 ou se `maxAttempts × api-call-attempt > api-call`.
 
 ## Project Conventions
 
@@ -83,7 +83,7 @@ As credenciais AWS não ficam no código: o cliente usa a cadeia padrão do SDK.
 
 - **TDD:** cada cenário (`#### Scenario`) das specs do OpenSpec vira um teste **antes** do código de produção (vermelho → verde → refatora).
 - **Dinheiro em `BigDecimal`**, nunca `Double`/`Float`, do parse do evento até a resposta HTTP.
-- **Domínio sem dependência de framework** (sem Spring, AWS SDK, Kafka ou Jackson em `domain/`).
+- **Núcleo sem dependência de framework** (`domain`, `port` e `application`); sem tipos de outros contextos nessas camadas.
 - **Um commit por change do OpenSpec**, em Conventional Commits (ver *Git Workflow*).
 - **Contratos vêm do enunciado:** `.challenge/enunciado.md` é a fonte da verdade para o payload do tópico, o request e o response.
   - Toda change que tocar um contrato deve conferir lá os nomes de campo, os tipos e os formatos: snake_case, µs, ISO 8601, UUID.
@@ -119,28 +119,29 @@ br/com/itau/challenge/<contexto>/
 ├── port/
 │   ├── input/          casos de uso oferecidos  → `fun interface <Verbo><Coisa>UseCase`
 │   └── output/         dependências necessárias → `fun interface <Coisa>Repository|Provider`
-├── application/        `@Service class <X>Service : <X>UseCase`; orquestra regras via ports
+├── application/        `class <X>Service : <X>UseCase`; Kotlin puro, orquestra via ports
 └── adapter/
     ├── input/web/      `@RestController` + `dto/`   (driving)
     ├── input/kafka/    `@KafkaListener`  + `dto/`   (driving)
-    └── output/dynamodb/ `@Component` implementando ports de saída + `@Configuration` do client (driven)
+    └── output/dynamodb/ `@Component` implementando ports de saída (driven)
 ```
 
 **Regra de dependência** (sempre em direção ao domínio):
 
 ```
 adapter ──▶ port ──▶ domain
-   │         ▲         ▲
-   └──▶ application ───┘        (application nunca importa adapter)
+             ▲         ▲
+       application ────┘
 ```
 
-- `domain` não depende de nenhuma outra camada **nem do Spring**.
+- `domain`, `port` e `application` usam somente JDK/Kotlin e o núcleo do próprio contexto, sem frameworks. `domain` não depende de outras camadas.
 - `port` não depende de `application` nem de `adapter`.
-- `application` não depende de `adapter`. Pode usar `@Service`.
-- `adapter` fala com o núcleo **via ports de entrada**, nunca instancia services diretamente.
+- `application` não depende de `adapter` nem da composição. Spring registra os services externamente, com configuração separada por contexto.
+- `adapter` fala com casos de uso **via ports de entrada**, sem importar application ou a raiz de composição; modelos do domínio continuam permitidos para tradução.
 - DTOs de transporte (HTTP/Kafka) ficam no adapter e são convertidos para modelos de domínio ali.
 - O circuit breaker é um Decorator do `BalanceRepository` (escrita) e do `BalanceProvider` (leitura) em `adapter/output/resilience`, exposto como `@Primary`. Os dois circuitos são instâncias independentes, para a API não pausar a ingestão nem o contrário, e partilham uma só definição do que conta como falha. Erros HTTP: toda a aplicação responde `application/problem+json` com `traceId` (do `traceparent` W3C, ou novo, também no MDC do log), e toda resposta de `/balances/**` leva `Cache-Control: no-store`; o saldo nunca é cacheado. Cada listener tem container, grupo e commit próprios: propriedades globais de listener (ex.: `spring.kafka.listener.ack-mode`) afetariam o consumer `hello`, e o error handler não pode ser um bean, porque o Boot o aplicaria a todos os containers.
-- A regra é verificada por `HexagonalArchitectureTest` (Konsist, no pacote raiz). A regra de camadas casa `..domain..`, `..port..` etc. em todos os contextos de uma vez. Os testes que proíbem imports de framework no domínio e nos ports são parametrizados por contexto, então todo contexto novo precisa entrar na lista de contextos do teste.
+- A verificação arquitetural descobre contextos automaticamente pelas camadas dos fontes de produção, incluindo contextos parciais; infraestrutura/composição não são contextos. A mesma política verifica produção e fixtures negativas, incluindo aliases e referências qualificadas, e falha em escopo vazio.
+- Testes estáticos declaram no Gradle suas entradas externas e inventários (documentos, OpenSpec, infra/http e fontes), incluindo criação/rename/remoção; não forçar execução permanente nem incluir material pessoal. Esses arquivos entram somente no estágio Docker test, por COPY seletivo; builder/runtime permanecem separados.
 
 **Fluxo de exemplo (`hello`):**
 - `GET /hello` → `GreetingController` → `GetGreetingUseCase` ← `GreetingService` → `GreetingTemplateProvider` ← `DynamoDbGreetingTemplateProvider` (Scan).

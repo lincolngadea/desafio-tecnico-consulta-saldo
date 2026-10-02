@@ -13,10 +13,10 @@ package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.domain.model.AccountId
 import br.com.itau.challenge.balance.port.output.TransientStorageException
-import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbConfig
-import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbProperties
-import br.com.itau.challenge.hello.adapter.output.dynamodb.READ_API_CALL_TIMEOUT
-import br.com.itau.challenge.hello.adapter.output.dynamodb.readProfile
+import br.com.itau.challenge.infrastructure.dynamodb.DynamoDbConfig
+import br.com.itau.challenge.infrastructure.dynamodb.DynamoDbProperties
+import br.com.itau.challenge.infrastructure.dynamodb.READ_API_CALL_TIMEOUT
+import br.com.itau.challenge.infrastructure.dynamodb.readProfile
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertTimeout
 import org.junit.jupiter.api.Test

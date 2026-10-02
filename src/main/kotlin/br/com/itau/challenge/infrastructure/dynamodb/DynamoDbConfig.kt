@@ -1,7 +1,7 @@
 /*
  * L35-L36 READ_RETRY_BASE_DELAY e READ_RETRY_MAX_DELAY: o backoff padrão do SDK (100 ms e 1 s para throttling)
  *     consumiria o orçamento da leitura; o retry rápido fica em 50 a 100 ms e não é configurável (YAGNI).
- * L40 DynamoDbConfig: cria os clientes DynamoDB da aplicação a partir das propriedades, com timeouts e tentativas
+ * L40 DynamoDbConfig: compõe os clients em infraestrutura neutra, sem carregar hello, com timeouts e tentativas
  *     explícitos: um por perfil de acesso, para a leitura ter orçamento curto sem encurtar a escrita
  *     (add-balance-query-api design D6).
  * L44-L55 dynamoDbClient: cliente da escrita e do `hello`; é `@Primary` para a injeção por tipo desses contextos
@@ -16,7 +16,7 @@
  *
  * Enunciado: O que será avaliado → Resiliência
  */
-package br.com.itau.challenge.hello.adapter.output.dynamodb
+package br.com.itau.challenge.infrastructure.dynamodb
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean

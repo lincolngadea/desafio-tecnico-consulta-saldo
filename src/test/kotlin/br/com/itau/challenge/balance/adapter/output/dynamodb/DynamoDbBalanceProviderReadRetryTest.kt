@@ -10,9 +10,9 @@ package br.com.itau.challenge.balance.adapter.output.dynamodb
 
 import br.com.itau.challenge.balance.port.output.PermanentStorageException
 import br.com.itau.challenge.balance.port.output.TransientStorageException
-import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbConfig
-import br.com.itau.challenge.hello.adapter.output.dynamodb.DynamoDbProperties
-import br.com.itau.challenge.hello.adapter.output.dynamodb.readProfile
+import br.com.itau.challenge.infrastructure.dynamodb.DynamoDbConfig
+import br.com.itau.challenge.infrastructure.dynamodb.DynamoDbProperties
+import br.com.itau.challenge.infrastructure.dynamodb.readProfile
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import org.junit.jupiter.api.AfterEach

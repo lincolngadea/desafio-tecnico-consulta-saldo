@@ -9,7 +9,7 @@ Detalhes em `openspec/project.md` → *Working Rules*.
 
 - **TDD:** todo cenário das specs do OpenSpec vira teste **antes** do código de produção.
 - **Dinheiro em `BigDecimal`** de ponta a ponta.
-- **Domínio sem dependência de framework.**
+- **Núcleo sem dependência de framework** (`domain`, `port` e `application`).
 - **Um commit por change do OpenSpec.**
 - **Contratos (payload, request, response) vêm de `.challenge/enunciado.md`.** Confira os nomes de campo e os formatos lá e nunca os invente.
 - **Toda implementação é validada contra `.challenge/enunciado.md`** antes de ser dada como pronta (Art. 11, inegociável).
@@ -30,7 +30,7 @@ Os Arts. 1 a 6 e 8 a 10 valem para todo código de produção **e de teste**. Os
 - **Adapters apenas traduzem** entre protocolo e domínio, sem decisão de negócio.
 - **Tipos de tecnologia nunca atravessam um port.** Isso vale para DTOs, `AttributeValue`, `ConsumerRecord` e `ResponseEntity`.
 - **Ports pertencem ao núcleo.** São definidos pela necessidade do caso de uso, não pela API da tecnologia.
-- **Única exceção aceita:** `@Service` em `application`, padrão herdado do kit.
+- **Núcleo puro em todo contexto:** `domain`, `port` e `application` não usam frameworks nem tipos do núcleo de outro contexto. Spring compõe os casos de uso externamente; adapters dependem de ports e modelos de domínio, nunca de application ou da raiz de composição.
 
 ### Art. 2 — SOLID
 

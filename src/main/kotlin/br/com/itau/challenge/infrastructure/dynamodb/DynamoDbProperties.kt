@@ -1,16 +1,17 @@
 /*
- * L20 DynamoDbProperties: agrupa as configurações dos clientes DynamoDB, para todo timeout e o limite de tentativas
+ * L21 DynamoDbProperties: agrupa os perfis compartilhados fora de hello, para todo timeout e o limite de tentativas
  *     serem explícitos e poderem ser sobrescritos por variável de ambiente.
- * L27 Timeouts: são quatro limites porque cada camada limita a sua parte: uma falha de rede não consome todo o teto
+ * L28 Timeouts: são quatro limites porque cada camada limita a sua parte: uma falha de rede não consome todo o teto
  *     da chamada, e uma tentativa lenta não consome as demais. `apiCall` limita a chamada inteira, somando todas as
  *     tentativas.
- * L34 Retry: `maxAttempts` conta a primeira chamada: 2 significa uma tentativa original e uma repetição.
- * L36-L46 Read: perfil da leitura, com as invariantes na construção (Fail Fast): no máximo 1 retry e `maxAttempts ×
- *     api-call-attempt ≤ api-call`, para o retry nunca ser truncado em silêncio nem o pior caso passar do orçamento.
+ * L35 Retry: `maxAttempts` conta a primeira chamada: 2 significa uma tentativa original e uma repetição.
+ * L37 Read: separa o orçamento curto da consulta sem encurtar as tentativas da escrita.
+ * L38-L46 init: as invariantes falham na subida para não truncar o retry nem exceder o orçamento da leitura:
+ *     no máximo 1 retry e `maxAttempts × api-call-attempt ≤ api-call` (Fail Fast).
  *
  * Enunciado: O que será avaliado → Resiliência
  */
-package br.com.itau.challenge.hello.adapter.output.dynamodb
+package br.com.itau.challenge.infrastructure.dynamodb
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.net.URI
